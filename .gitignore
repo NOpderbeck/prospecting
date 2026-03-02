@@ -1,0 +1,29 @@
+# Credentials & secrets — NEVER commit these
+.env
+.credentials/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.python-version
+
+# Generated reports (kept local)
+reports/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Claude local config
+.claude/
+
+# IDE
+.vscode/
+.idea/
