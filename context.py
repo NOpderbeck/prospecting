@@ -43,11 +43,6 @@ CONNECTORS = [
         "label": "Gmail & Google Drive",
         "env_vars": ["GOOGLE_CREDENTIALS_FILE"],
     },
-    {
-        "key": "notion",
-        "label": "Notion",
-        "env_vars": ["NOTION_API_KEY"],
-    },
 ]
 
 
@@ -88,8 +83,7 @@ def load_config():
         "slack_user_token":       os.getenv("SLACK_USER_TOKEN"),
         # Google (optional)
         "google_credentials_file": os.getenv("GOOGLE_CREDENTIALS_FILE"),
-        # Notion (optional)
-        "notion_api_key":         os.getenv("NOTION_API_KEY"),
+
     }
     # Only the Anthropic key is required — everything else is optional
     if not config["anthropic_api_key"] or config["anthropic_api_key"].startswith("your_"):
@@ -615,95 +609,6 @@ def _format_google(emails: list, drive_files: list) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Notion Connector
-# ---------------------------------------------------------------------------
-
-def pull_notion(company: str, config: dict, verbose: bool) -> dict:
-    """Returns dict with: pages, formatted_text."""
-    try:
-        from notion_client import Client as NotionClient
-        from notion_client.errors import APIResponseError
-    except ImportError:
-        return {
-            "error": "library_not_installed",
-            "formatted_text": (
-                "_Notion connector: `notion-client` library not installed. "
-                "Run: `pip install notion-client`_"
-            ),
-        }
-
-    try:
-        notion = NotionClient(auth=config["notion_api_key"])
-    except Exception as e:
-        return {"error": "init_failed", "formatted_text": f"_Notion client init failed: {e}_"}
-
-    try:
-        results = notion.search(
-            query=company,
-            filter={"property": "object", "value": "page"},
-            page_size=10,
-        )
-    except APIResponseError as e:
-        if e.status == 401:
-            return {
-                "error": "auth_failed",
-                "formatted_text": "_Notion authentication failed. Check NOTION_API_KEY._",
-            }
-        return {
-            "error": f"notion_api_{e.status}",
-            "formatted_text": f"_Notion API error (HTTP {e.status}): {e}_",
-        }
-    except Exception as e:
-        return {"error": "connection_failed", "formatted_text": f"_Notion connection error: {e}_"}
-
-    raw_pages = results.get("results", [])
-    if verbose:
-        print(f"    [verbose] Notion: {len(raw_pages)} pages found")
-
-    if not raw_pages:
-        return {
-            "pages": [],
-            "formatted_text": (
-                f"_No Notion pages found for '{company}'. "
-                "Ensure the integration is shared with relevant pages._"
-            ),
-        }
-
-    pages = []
-    for p in raw_pages:
-        title = _extract_notion_title(p)
-        url = p.get("url", "")
-        last_edited = (p.get("last_edited_time") or "")[:10]
-        pages.append({"title": title, "url": url, "last_edited": last_edited})
-
-    return {"pages": pages, "formatted_text": _format_notion(pages)}
-
-
-def _extract_notion_title(page: dict) -> str:
-    """Extract plain text title from a Notion page — handles both database and standalone pages."""
-    # Database pages: properties["<Name>"]["title"][0]["plain_text"]
-    for prop_val in page.get("properties", {}).values():
-        if prop_val.get("type") == "title":
-            rich_text = prop_val.get("title", [])
-            if rich_text:
-                return "".join(rt.get("plain_text", "") for rt in rich_text)
-    # Standalone pages: page["title"][0]["plain_text"]
-    title_arr = page.get("title", [])
-    if title_arr:
-        return "".join(rt.get("plain_text", "") for rt in title_arr)
-    return "(Untitled)"
-
-
-def _format_notion(pages: list) -> str:
-    lines = [f"### Notion Pages ({len(pages)} found)"]
-    for p in pages:
-        if p["url"]:
-            lines.append(f"- [{p['title']}]({p['url']}) — last edited {p['last_edited']}")
-        else:
-            lines.append(f"- {p['title']} — last edited {p['last_edited']}")
-    return "\n".join(lines)
-
 
 # ---------------------------------------------------------------------------
 # Claude Synthesis
@@ -714,7 +619,6 @@ def build_context_prompt(company: str, connector_data: dict) -> str:
         "salesforce": "SALESFORCE CRM DATA",
         "slack":      "SLACK MESSAGES",
         "google":     "GMAIL & GOOGLE DRIVE DATA",
-        "notion":     "NOTION PAGES",
     }
 
     data_block = ""
@@ -753,10 +657,6 @@ Summarize the email threads found. Note the direction (inbound vs outbound where
 ## Relevant Documents (Google Drive)
 
 List the documents found. For each: note the name, type, and last-modified date. Highlight any proposals, contracts, presentations, or meeting notes that would be useful context before reaching out.
-
-## Internal Notes (Notion)
-
-List Notion pages found related to this account, with their last-edited date. Note which appear most recently updated and therefore most relevant.
 
 ## Sales Rep Briefing
 
@@ -870,8 +770,6 @@ def main():
             result = pull_slack(company, config, args.verbose)
         elif key == "google":
             result = pull_google(company, config, args.verbose)
-        elif key == "notion":
-            result = pull_notion(company, config, args.verbose)
         else:
             continue
 
