@@ -36,6 +36,9 @@ from context import (
     CONNECTORS,
 )
 
+# Reuse email functions from meeting_prep.py — no duplication needed
+from meeting_prep import send_email, markdown_to_html
+
 
 # ---------------------------------------------------------------------------
 # CLI & Config
@@ -64,6 +67,11 @@ def parse_args():
         help="Base directory for reports (default: reports/). Output goes into a YYYY-MM-DD subfolder.",
     )
     parser.add_argument(
+        "--email",
+        action="store_true",
+        help="Convert output to HTML and email it (requires SMTP_USER and SMTP_PASSWORD in .env)",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Print detailed connector response info",
@@ -86,6 +94,12 @@ def load_config():
         "google_credentials_file": os.getenv("GOOGLE_CREDENTIALS_FILE"),
         # You.com (optional, --news only)
         "youcom_api_key":          os.getenv("YOUCOM_API_KEY"),
+        # Email (optional, --email only)
+        "smtp_host":               os.getenv("SMTP_HOST", "smtp.gmail.com"),
+        "smtp_port":               int(os.getenv("SMTP_PORT", "587")),
+        "smtp_user":               os.getenv("SMTP_USER", ""),
+        "smtp_password":           os.getenv("SMTP_PASSWORD", ""),
+        "email_to":                os.getenv("EMAIL_TO", ""),
     }
     if not config["anthropic_api_key"] or config["anthropic_api_key"].startswith("your_"):
         print("ERROR: Missing or placeholder ANTHROPIC_API_KEY in .env")
@@ -355,6 +369,16 @@ def main():
     filepath = write_report(company, report_body, args.output_dir)
 
     print(f"\nDone! Report saved to: {filepath}")
+
+    if args.email:
+        print("\nSending email...")
+        subject = f"Account Lookup: {company} — {date.today().strftime('%b %-d, %Y')}"
+        with open(filepath, encoding="utf-8") as f:
+            md_content = f.read()
+        ok = send_email(md_content, subject, config, args.verbose)
+        if ok:
+            print(f"  Email sent to: {config.get('email_to') or config.get('sf_username')}")
+
     print("=" * 60)
 
 
