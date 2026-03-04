@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Run Script — Prospecting Toolkit{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Run Script</h2>
+  <p>Launch a script and watch the output stream live</p>
+</div>
+
+<!-- Script selector -->
+<div class="script-cards" id="script-cards">
+  {% for key, meta in script_meta.items() %}
+  <button
+    class="script-card {% if prefill_script == key %}selected{% endif %}"
+    onclick="selectScript('{{ key }}')"
+    data-script="{{ key }}"
+    type="button"
+  >
+    <span class="script-icon">{{ meta.icon }}</span>
+    <span class="script-name">{{ meta.label }}</span>
+    <span class="script-desc">{{ meta.description }}</span>
+  </button>
+  {% endfor %}
+</div>
+
+<!-- Options form -->
+<div class="ask-form-wrap">
+  <form id="run-form" onsubmit="startRun(event)">
+    <input type="hidden" id="selected-script" value="{{ prefill_script }}"/>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="company-input">Company name</label>
+        <input
+          class="form-control"
+          id="company-input"
+          type="text"
+          placeholder="e.g. Deloitte"
+          value="{{ prefill_company }}"
+          required
+        />
+      </div>
+      <div class="form-group" id="domain-group">
+        <label for="domain-input">Domain <span style="color:var(--muted);font-weight:400;">(optional, lookup only)</span></label>
+        <input
+          class="form-control"
+          id="domain-input"
+          type="text"
+          placeholder="e.g. deloitte.com"
+        />
+      </div>
+    </div>
+
+    <div class="form-row" id="extra-options">
+      <!-- Lookup extras -->
+      <div id="opt-news" style="display:none;" class="checkbox-group">
+        <input type="checkbox" id="news-check"/>
+        <label for="news-check">Include recent news (You.com)</label>
+      </div>
+      <!-- Score extras -->
+      <div id="opt-url" style="display:none;" class="form-group">
+        <label for="url-input">Company URL <span style="color:var(--muted);font-weight:400;">(optional, score only)</span></label>
+        <input class="form-control" id="url-input" type="url" placeholder="https://company.com"/>
+      </div>
+      <!-- Verbose -->
+      <div class="checkbox-group">
+        <input type="checkbox" id="verbose-check"/>
+        <label for="verbose-check">Verbose output</label>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;display:flex;gap:10px;align-items:center;">
+      <button class="btn btn-primary" type="submit" id="run-btn">▶ Run</button>
+      <button class="btn btn-ghost" type="button" onclick="clearTerminal()">🗑 Clear</button>
+      <span id="run-status" class="status-bar"></span>
+    </div>
+  </form>
+</div>
+
+<!-- Terminal -->
+<div class="terminal-wrap">
+  <div class="terminal-bar">
+    <div class="terminal-dot red"></div>
+    <div class="terminal-dot yellow"></div>
+    <div class="terminal-dot green" id="term-dot-green"></div>
+    <span id="term-label" style="margin-left:8px;">Ready</span>
+  </div>
+  <div id="terminal-output"></div>
+</div>
+
+<script>
+let currentScript = document.getElementById('selected-script').value || 'lookup';
+let evtSource = null;
+
+function selectScript(key) {
+  currentScript = key;
+  document.getElementById('selected-script').value = key;
+  document.querySelectorAll('.script-card').forEach(c => c.classList.remove('selected'));
+  document.querySelector(`[data-script="${key}"]`).classList.add('selected');
+
+  // Show/hide extra options
+  document.getElementById('opt-news').style.display  = key === 'lookup' ? 'flex' : 'none';
+  document.getElementById('opt-url').style.display   = key === 'score'  ? 'block' : 'none';
+  document.getElementById('domain-group').style.display = key === 'lookup' ? 'block' : 'none';
+}
+
+// Init visibility on load
+selectScript(currentScript);
+
+function clearTerminal() {
+  document.getElementById('terminal-output').innerHTML = '';
+  document.getElementById('run-status').innerHTML = '';
+  document.getElementById('term-label').textContent = 'Ready';
+}
+
+function appendLine(text, cls) {
+  const el = document.getElementById('terminal-output');
+  const line = document.createElement('div');
+  line.className = cls || 'term-line-out';
+  line.textContent = text;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function startRun(e) {
+  e.preventDefault();
+  if (evtSource) { evtSource.close(); }
+
+  const company  = document.getElementById('company-input').value.trim();
+  const script   = currentScript;
+  const domain   = document.getElementById('domain-input').value.trim();
+  const news     = document.getElementById('news-check').checked;
+  const url      = document.getElementById('url-input').value.trim();
+  const verbose  = document.getElementById('verbose-check').checked;
+
+  if (!company) { alert('Please enter a company name.'); return; }
+
+  clearTerminal();
+
+  const params = new URLSearchParams({
+    company, script, domain,
+    news:    news    ? 'true' : '',
+    url:     url,
+    verbose: verbose ? 'true' : '',
+  });
+
+  document.getElementById('run-status').innerHTML =
+    '<span class="spinner"></span><span class="status-running">Running…</span>';
+  document.getElementById('term-label').textContent = `${script} — ${company}`;
+  document.getElementById('run-btn').disabled = true;
+
+  evtSource = new EventSource(`/run/stream?${params}`);
+
+  evtSource.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.done) {
+      evtSource.close();
+      document.getElementById('run-btn').disabled = false;
+      const ok = data.exit_code === 0;
+      document.getElementById('run-status').innerHTML = ok
+        ? '<span class="status-ok">✓ Completed</span>'
+        : `<span class="status-error">✗ Exited with code ${data.exit_code}</span>`;
+      // If line also present on final message
+      if (data.line) appendLine(data.line, 'term-line-out');
+      return;
+    }
+    const line = data.line || '';
+    let cls = 'term-line-out';
+    if (line.startsWith('ERROR') || line.toLowerCase().includes('error:')) cls = 'term-line-err';
+    else if (line.startsWith('---') || line.startsWith('===') || line.startsWith('##')) cls = 'term-line-hdr';
+    else if (line.toLowerCase().includes('✓') || line.toLowerCase().includes('done') || line.toLowerCase().includes('saved')) cls = 'term-line-ok';
+    appendLine(line, cls);
+  };
+
+  evtSource.onerror = () => {
+    evtSource.close();
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-status').innerHTML = '<span class="status-error">✗ Stream error</span>';
+  };
+}
+</script>
+{% endblock %}

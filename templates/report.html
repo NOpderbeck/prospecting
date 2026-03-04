@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ display }} — {{ report_type }} {{ report_date }}{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+  <a href="/">Dashboard</a>
+  <span class="sep">›</span>
+  <a href="/history/{{ slug }}">{{ display }}</a>
+  <span class="sep">›</span>
+  <span>{{ report_date }} / {{ report_type }}</span>
+</div>
+
+<div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h2>{{ display }}</h2>
+    <p>
+      <span class="badge badge-{{ report_type }}">{{ report_type }}</span>
+      &nbsp;{{ report_date }}
+    </p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <a class="btn btn-ghost btn-sm" href="/ask?company={{ slug }}&report_type={{ report_type }}">💬 Ask about this</a>
+    <a class="btn btn-ghost btn-sm" href="/run?company={{ display }}&script={{ report_type }}">🔄 Re-run</a>
+    <a class="btn btn-ghost btn-sm" href="/history/{{ slug }}">← History</a>
+  </div>
+</div>
+
+<div class="report-prose">
+  {{ html_body | safe }}
+</div>
+
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ display }} History — Prospecting Toolkit{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+  <a href="/">Dashboard</a>
+  <span class="sep">›</span>
+  <span>{{ display }}</span>
+</div>
+
+<div class="page-header">
+  <h2>{{ display }}</h2>
+  <p>{{ reports|length }} report{{ 's' if reports|length != 1 else '' }} on file</p>
+</div>
+
+<div style="display:flex;gap:10px;margin-bottom:24px;">
+  <a class="btn btn-primary btn-sm" href="/run?company={{ display }}&script=lookup">▶ Run Lookup</a>
+  <a class="btn btn-ghost btn-sm" href="/ask?company={{ slug }}">💬 Ask a Question</a>
+</div>
+
+{% if reports %}
+<div class="card" style="padding:0;overflow:hidden;">
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Type</th>
+        <th>File</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in reports %}
+      <tr>
+        <td>{{ r.date }}</td>
+        <td><span class="badge badge-{{ r.type }}">{{ r.type }}</span></td>
+        <td><code style="font-size:12px;color:var(--muted);">{{ r.filename }}</code></td>
+        <td style="text-align:right;">
+          <a class="btn btn-ghost btn-sm" href="/report/{{ slug }}/{{ r.filename }}">View →</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">📭</div>
+  <p>No reports found for <strong>{{ display }}</strong>.</p>
+  <p style="margin-top:10px;">
+    <a class="btn btn-primary" href="/run?company={{ display }}&script=lookup">▶ Run Lookup</a>
+  </p>
+</div>
+{% endif %}
+
+{% endblock %}

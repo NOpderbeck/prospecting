@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{% block title %}Prospecting Toolkit{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
+</head>
+<body>
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <h1>⚡ Prospecting</h1>
+      <p>You.com Sales Toolkit</p>
+    </div>
+    <nav>
+      <a href="/" class="{% if active == 'dashboard' %}active{% endif %}">
+        <span class="nav-icon">🏠</span> Dashboard
+      </a>
+      <a href="/run" class="{% if active == 'run' %}active{% endif %}">
+        <span class="nav-icon">▶️</span> Run Script
+      </a>
+      <a href="/ask" class="{% if active == 'ask' %}active{% endif %}">
+        <span class="nav-icon">💬</span> Ask a Question
+      </a>
+    </nav>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

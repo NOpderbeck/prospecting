@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Ask — Prospecting Toolkit{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Ask a Question</h2>
+  <p>Query any account report with natural language &mdash; no API connectors needed</p>
+</div>
+
+<div class="ask-form-wrap">
+  <form
+    hx-post="/ask/query"
+    hx-target="#ask-result"
+    hx-indicator="#ask-indicator"
+    hx-swap="innerHTML"
+    onsubmit="showLoading()"
+  >
+    <div class="form-row">
+      <div class="form-group">
+        <label for="company-select">Account</label>
+        <select class="form-control" id="company-select" name="company" required>
+          <option value="">— Select account —</option>
+          {% for acct in accounts %}
+          <option value="{{ acct.slug }}" {% if acct.slug == prefill_company %}selected{% endif %}>
+            {{ acct.display }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="type-select">Report type <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+        <select class="form-control" id="type-select" name="report_type">
+          <option value="">All types (latest)</option>
+          <option value="lookup"   {% if prefill_type == 'lookup'   %}selected{% endif %}>Lookup</option>
+          <option value="context"  {% if prefill_type == 'context'  %}selected{% endif %}>Context</option>
+          <option value="research" {% if prefill_type == 'research' %}selected{% endif %}>Research</option>
+          <option value="score"    {% if prefill_type == 'score'    %}selected{% endif %}>Score</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="question-input">Question</label>
+      <input
+        class="form-control"
+        id="question-input"
+        name="question"
+        type="text"
+        placeholder="e.g. What is the status of the NDA? What are the action items?"
+        required
+        autofocus
+      />
+    </div>
+
+    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+      <button class="btn btn-primary" type="submit">Ask Claude →</button>
+      <div class="checkbox-group">
+        <input type="checkbox" id="use-all-check" name="use_all" value="true"/>
+        <label for="use-all-check">Search across all reports (not just latest)</label>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Result -->
+<div id="ask-result">
+  <div style="color:var(--muted);font-size:14px;text-align:center;padding:24px 0;">
+    Answer will appear here
+  </div>
+</div>
+
+<!-- Loading indicator (hidden by HTMX when not loading) -->
+<div id="ask-indicator" style="display:none;">
+  <div class="ask-loading">
+    <span class="spinner"></span> Asking Claude…
+  </div>
+</div>
+
+<script>
+// Show loading state when form is submitted
+function showLoading() {
+  document.getElementById('ask-result').innerHTML =
+    '<div class="ask-loading"><span class="spinner"></span> Asking Claude&hellip;</div>';
+}
+
+// HTMX: swap loading state immediately on submit
+document.querySelector('form').addEventListener('htmx:beforeRequest', function() {
+  document.getElementById('ask-result').innerHTML =
+    '<div class="ask-loading"><span class="spinner"></span> Asking Claude&hellip;</div>';
+});
+</script>
+{% endblock %}
