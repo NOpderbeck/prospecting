@@ -125,17 +125,6 @@ def get_my_domain(config: dict) -> str:
     sys.exit(1)
 
 
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
-
-def slugify(text: str) -> str:
-    slug = text.lower().strip()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug)
-    return slug.strip("-")
-
 
 def domain_to_company_name(domain: str) -> str:
     """Best-effort company name from domain. e.g. 'acme-corp.com' → 'Acme Corp'"""
@@ -388,6 +377,7 @@ def research_attendee(name: str, company: str, email: str, api_key: str, verbose
     domain_qualifier = f" {domain}" if domain else ""
 
     snippets = ""
+    data2 = None
 
     # Primary: LinkedIn-focused search with domain disambiguator
     q1 = f'"{name}" "{company}"{domain_qualifier} LinkedIn title role'
@@ -404,12 +394,24 @@ def research_attendee(name: str, company: str, email: str, api_key: str, verbose
             snippets = snippets2
         time.sleep(0.3)
 
+    # Extract LinkedIn profile URL from whichever search returned results
+    linkedin_url = ""
+    for result_data in filter(None, [data1, data2]):
+        for hit in result_data.get("results", {}).get("web", []):
+            url = hit.get("url", "")
+            if "linkedin.com/in/" in url:
+                linkedin_url = url
+                break
+        if linkedin_url:
+            break
+
     return {
         "name": name,
         "email": email,
         "company": company,
         "domain": email.split("@")[1] if "@" in email else "",
         "research_snippets": snippets or f"No public profile information found for {name} at {company}.",
+        "linkedin_url": linkedin_url,
     }
 
 
@@ -613,10 +615,15 @@ def build_meeting_prompt(
         attendee_lines.append(f"- {name} <{att['email']}> ({att['domain']})")
     attendee_block = "\n".join(attendee_lines) if attendee_lines else "- (no external attendees identified)"
 
-    # Build attendee research block
+    # Build attendee research block (hyperlink name if LinkedIn URL found)
     research_block = ""
     for ar in attendee_research:
-        research_block += f"\n### {ar['name']} ({ar['email']})\n"
+        name_display = (
+            f"[{ar['name']}]({ar['linkedin_url']})"
+            if ar.get("linkedin_url")
+            else ar["name"]
+        )
+        research_block += f"\n### {name_display} ({ar['email']})\n"
         research_block += f"Company: {ar['company']}\n"
         research_block += f"Public research snippets:\n{ar['research_snippets']}\n"
 
@@ -655,7 +662,7 @@ State the meeting title, date/time, duration, location/link, and a one-sentence 
 Write 2-4 sentences describing what {org_names} does, their market position, and any relevant context. Base this on the research snippets and news. If information is limited, say so.
 
 ## Attendee Profiles
-For each external attendee, write a short paragraph covering their role/title (extracted from research), seniority level, and any notable context relevant to this meeting. If no title is found in the research, acknowledge it and note where to verify (e.g., LinkedIn).
+For each external attendee, write a short paragraph covering their role/title (extracted from research), seniority level, and any notable context relevant to this meeting. If no title is found in the research, acknowledge it and note where to verify (e.g., LinkedIn). Where an attendee's name appears as a hyperlink in the research block (formatted as [Name](url)), preserve that LinkedIn hyperlink when writing their name.
 
 ## Our Relationship with {org_names}
 Summarize what the internal Slack messages and Drive documents reveal about the existing relationship. Note the tone (active prospect, existing customer, dormant, new), any prior meetings or discussions, and any open items or commitments. If an Account Plan was found in Drive, highlight it prominently with a link and note its last modified date.

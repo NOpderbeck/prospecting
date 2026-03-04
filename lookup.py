@@ -23,7 +23,6 @@ import time
 import argparse
 from datetime import date
 
-import requests
 import anthropic
 from dotenv import load_dotenv
 
@@ -37,8 +36,8 @@ from context import (
     CONNECTORS,
 )
 
-# Reuse email functions from meeting_prep.py — no duplication needed
-from meeting_prep import send_email, markdown_to_html
+# Reuse email + You.com helpers from meeting_prep.py — no duplication needed
+from meeting_prep import send_email, markdown_to_html, search_youcom, extract_snippets
 
 
 # ---------------------------------------------------------------------------
@@ -128,37 +127,26 @@ def search_news(company: str, domain: str, youcom_key: str, verbose: bool) -> st
 
     sections = []
     for q in queries:
-        if verbose:
-            print(f"    [verbose] You.com: {q['query']}")
-        try:
-            resp = requests.get(
-                "https://api.you.com/v1/search",
-                headers={"X-API-Key": youcom_key},
-                params={"query": q["query"], "count": 5},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            hits = data.get("results", {}).get("web", [])
-            if hits:
-                snippets = []
-                for h in hits:
-                    title = h.get("title", "")
-                    snippet = h.get("description", h.get("snippet", ""))
-                    url = h.get("url", "")
-                    if title or snippet:
-                        line = f"- **{title}**: {snippet}"
-                        if url:
-                            line += f" [→]({url})"
-                        snippets.append(line)
-                if snippets:
-                    sections.append(f"**{q['label']}**\n" + "\n".join(snippets))
-            else:
-                sections.append(f"**{q['label']}**: _No results found._")
-        except Exception as e:
-            if verbose:
-                print(f"    [verbose] You.com error ({q['label']}): {e}")
-            sections.append(f"**{q['label']}**: _Search error: {e}_")
+        data = search_youcom(q["query"], youcom_key, num_results=5, verbose=verbose)
+        if data.get("error"):
+            sections.append(f"**{q['label']}**: _Search error: {data['error']}_")
+            continue
+        hits = data.get("results", {}).get("web", [])
+        if hits:
+            snippets = []
+            for h in hits:
+                title = h.get("title", "")
+                snippet = h.get("description", h.get("snippet", ""))
+                url = h.get("url", "")
+                if title or snippet:
+                    line = f"- **{title}**: {snippet}"
+                    if url:
+                        line += f" [→]({url})"
+                    snippets.append(line)
+            if snippets:
+                sections.append(f"**{q['label']}**\n" + "\n".join(snippets))
+        else:
+            sections.append(f"**{q['label']}**: _No results found._")
 
     return "\n\n".join(sections) if sections else "_No news results returned._"
 
@@ -200,24 +188,13 @@ def find_linkedin_url(name: str, company: str, youcom_key: str, verbose: bool) -
     Returns the first linkedin.com/in/ URL found, or empty string.
     """
     query = f'"{name}" {company} LinkedIn profile'
-    try:
-        resp = requests.get(
-            "https://api.you.com/v1/search",
-            headers={"X-API-Key": youcom_key},
-            params={"query": query, "count": 5},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        for hit in data.get("results", {}).get("web", []):
-            url = hit.get("url", "")
-            if "linkedin.com/in/" in url:
-                if verbose:
-                    print(f"    [verbose] LinkedIn found: {name} → {url}")
-                return url
-    except Exception as e:
-        if verbose:
-            print(f"    [verbose] LinkedIn search error for {name}: {e}")
+    data = search_youcom(query, youcom_key, num_results=5, verbose=verbose)
+    for hit in data.get("results", {}).get("web", []):
+        url = hit.get("url", "")
+        if "linkedin.com/in/" in url:
+            if verbose:
+                print(f"    [verbose] LinkedIn found: {name} → {url}")
+            return url
     return ""
 
 
