@@ -19,6 +19,7 @@ Requirements:
 
 import os
 import sys
+import time
 import argparse
 from datetime import date
 
@@ -137,7 +138,8 @@ def search_news(company: str, domain: str, youcom_key: str, verbose: bool) -> st
                 timeout=15,
             )
             resp.raise_for_status()
-            hits = resp.json().get("hits", [])
+            data = resp.json()
+            hits = data.get("results", {}).get("web", [])
             if hits:
                 snippets = []
                 for h in hits:
@@ -162,10 +164,96 @@ def search_news(company: str, domain: str, youcom_key: str, verbose: bool) -> st
 
 
 # ---------------------------------------------------------------------------
+# LinkedIn Research (key contacts only)
+# ---------------------------------------------------------------------------
+
+# Title keywords that indicate a contact is senior / strategically relevant.
+# Contacts matching at least one keyword are eligible for LinkedIn lookup.
+SENIOR_TITLE_KEYWORDS = [
+    "partner", "principal", "director", "managing director",
+    "vp ", "vice president", "president",
+    "ceo", "cto", "cfo", "coo", "cio", "ciso", "cmo", "cpo", "chief",
+    "head of", " ai", "artificial intelligence", "machine learning",
+    "data science", "analytics",
+]
+
+
+def get_key_crm_contacts(contacts: list, max_contacts: int = 8) -> list:
+    """
+    Filter CRM contacts to the most senior / AI-relevant ones.
+    Scores each contact by how many SENIOR_TITLE_KEYWORDS appear in their title,
+    returns up to max_contacts sorted by score descending.
+    """
+    scored = []
+    for c in contacts:
+        title = (c.get("Title") or "").lower()
+        score = sum(1 for kw in SENIOR_TITLE_KEYWORDS if kw in title)
+        if score > 0:
+            scored.append((score, c))
+    scored.sort(key=lambda x: -x[0])
+    return [c for _, c in scored[:max_contacts]]
+
+
+def find_linkedin_url(name: str, company: str, youcom_key: str, verbose: bool) -> str:
+    """
+    Search You.com for a person's LinkedIn profile.
+    Returns the first linkedin.com/in/ URL found, or empty string.
+    """
+    query = f'"{name}" {company} LinkedIn profile'
+    try:
+        resp = requests.get(
+            "https://api.you.com/v1/search",
+            headers={"X-API-Key": youcom_key},
+            params={"query": query, "count": 5},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        for hit in data.get("results", {}).get("web", []):
+            url = hit.get("url", "")
+            if "linkedin.com/in/" in url:
+                if verbose:
+                    print(f"    [verbose] LinkedIn found: {name} → {url}")
+                return url
+    except Exception as e:
+        if verbose:
+            print(f"    [verbose] LinkedIn search error for {name}: {e}")
+    return ""
+
+
+def research_key_contacts(
+    contacts: list, company: str, youcom_key: str, verbose: bool
+) -> dict:
+    """
+    Run LinkedIn lookups for key CRM contacts.
+    Returns dict mapping {full_name: linkedin_url} for contacts where a URL was found.
+    """
+    key_contacts = get_key_crm_contacts(contacts)
+    if not key_contacts:
+        return {}
+
+    print(f"  Researching LinkedIn for {len(key_contacts)} key contacts...")
+    linkedin_urls = {}
+    for i, c in enumerate(key_contacts):
+        name = f"{c.get('FirstName', '')} {c.get('LastName', '')}".strip()
+        if not name:
+            continue
+        url = find_linkedin_url(name, company, youcom_key, verbose)
+        if url:
+            linkedin_urls[name] = url
+        if i < len(key_contacts) - 1:
+            time.sleep(0.3)  # avoid hammering the API
+
+    found = len(linkedin_urls)
+    print(f"  OK    LinkedIn: {found}/{len(key_contacts)} profiles found")
+    return linkedin_urls
+
+
+# ---------------------------------------------------------------------------
 # Claude Synthesis
 # ---------------------------------------------------------------------------
 
-def build_lookup_prompt(company: str, connector_data: dict, news_text: str) -> str:
+def build_lookup_prompt(company: str, connector_data: dict, news_text: str, linkedin_urls: dict) -> str:
     CONNECTOR_LABELS = {
         "salesforce": "SALESFORCE CRM DATA",
         "slack":      "SLACK MESSAGES",
@@ -183,6 +271,18 @@ def build_lookup_prompt(company: str, connector_data: dict, news_text: str) -> s
 
     if news_text:
         data_block += f"\n{'=' * 60}\nEXTERNAL NEWS (You.com)\n{'=' * 60}\n{news_text}\n"
+
+    linkedin_block = ""
+    if linkedin_urls:
+        lines = ["The following LinkedIn profile URLs were found for key contacts."]
+        lines.append("In the Key People section, hyperlink each person's name as [Name](url) wherever their URL appears below.")
+        for name, url in linkedin_urls.items():
+            lines.append(f"- {name}: {url}")
+        linkedin_block = (
+            f"\n{'=' * 60}\nLINKEDIN PROFILES\n{'=' * 60}\n"
+            + "\n".join(lines) + "\n"
+        )
+        data_block += linkedin_block
 
     return f"""Below is all internal (and optionally external) data found for the account "{company}". Synthesize a concise account lookup summary for a sales representative who has little or no familiarity with this account.
 
@@ -220,11 +320,12 @@ def synthesize_with_claude(
     company: str,
     connector_data: dict,
     news_text: str,
+    linkedin_urls: dict,
     api_key: str,
     verbose: bool,
 ) -> str:
     client = anthropic.Anthropic(api_key=api_key)
-    prompt = build_lookup_prompt(company, connector_data, news_text)
+    prompt = build_lookup_prompt(company, connector_data, news_text, linkedin_urls)
 
     if verbose:
         print(f"    [verbose] Lookup prompt: {len(prompt):,} characters")
@@ -342,28 +443,42 @@ def main():
         )
 
     # -----------------------------------------------------------------
-    # [2/3] Optional: You.com news search
+    # [2/4] LinkedIn research for key contacts
+    # -----------------------------------------------------------------
+    linkedin_urls = {}
+    youcom_key = config.get("youcom_api_key", "")
+    if youcom_key and not youcom_key.startswith("your_"):
+        crm_contacts = connector_data.get("salesforce", {}).get("contacts", [])
+        if crm_contacts:
+            print("\n[2/4] Researching LinkedIn for key contacts...")
+            linkedin_urls = research_key_contacts(crm_contacts, company, youcom_key, args.verbose)
+        else:
+            print("\n[2/4] Skipping LinkedIn research (no CRM contacts found)")
+    else:
+        print("\n[2/4] Skipping LinkedIn research (YOUCOM_API_KEY not configured)")
+
+    # -----------------------------------------------------------------
+    # [3/4] Optional: You.com news search
     # -----------------------------------------------------------------
     news_text = ""
     if args.news:
-        print("\n[2/3] Searching external news (You.com)...")
-        youcom_key = config.get("youcom_api_key", "")
+        print("\n[3/4] Searching external news (You.com)...")
         if youcom_key and not youcom_key.startswith("your_"):
             news_text = search_news(company, domain, youcom_key, args.verbose)
             print("  OK    News search complete")
         else:
             print("  SKIP  YOUCOM_API_KEY not configured in .env")
     else:
-        print("\n[2/3] Skipping external news  (add --news to include)")
+        print("\n[3/4] Skipping external news  (add --news to include)")
 
     # -----------------------------------------------------------------
-    # [3/3] Synthesize with Claude and write report
+    # [4/4] Synthesize with Claude and write report
     # -----------------------------------------------------------------
     total_chars = sum(len(v.get("formatted_text", "")) for v in connector_data.values())
-    print(f"\n[3/3] Synthesizing with Claude ({total_chars:,} chars of context)...")
+    print(f"\n[4/4] Synthesizing with Claude ({total_chars:,} chars of context)...")
 
     report_body = synthesize_with_claude(
-        company, connector_data, news_text, config["anthropic_api_key"], args.verbose
+        company, connector_data, news_text, linkedin_urls, config["anthropic_api_key"], args.verbose
     )
 
     filepath = write_report(company, report_body, args.output_dir)
