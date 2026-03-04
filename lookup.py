@@ -196,7 +196,7 @@ Write the report using EXACTLY this markdown structure. Be specific and ground e
 Describe who this company is: industry, size, revenue, website, and current Salesforce account owner. State clearly whether this appears to be an active customer, an active prospect, a dormant account, or a net-new name based on the CRM data.
 
 ## Relationship History
-Summarize the arc of our relationship with this account. Cover: key deals (won/lost/open with amounts and dates), notable meetings or events logged in CRM, relevant email threads, and Slack discussions. What does the trajectory look like — growing, stalled, or picking back up?
+Summarize the arc of our relationship with this account in **chronological order (oldest to most recent)**. Cover: key deals (won/lost/open with amounts and dates), notable meetings or events logged in CRM, relevant email threads, and Slack discussions. End with a one-sentence assessment of the trajectory — growing, stalled, or picking back up?
 
 ## Key People
 List every person we have on file at this account: CRM contacts (name, title, email), plus anyone who appears in Slack threads or email. Flag the most senior contacts and note anyone who appears across multiple sources as particularly relevant.
