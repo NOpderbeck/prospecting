@@ -441,6 +441,49 @@ def _format_slack(messages: list) -> str:
 # Google (Gmail + Drive) Connector
 # ---------------------------------------------------------------------------
 
+def _extract_gmail_body(payload: dict, max_chars: int = 800) -> str:
+    """
+    Recursively extract plain-text body from a Gmail message payload.
+    Falls back to HTML (stripped) if no plain-text part exists.
+    Returns a truncated string, or empty string if nothing found.
+    """
+    import base64
+
+    def decode(data: str) -> str:
+        try:
+            return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    def strip_html(html: str) -> str:
+        """Very lightweight HTML tag stripper."""
+        return re.sub(r"<[^>]+>", " ", html)
+
+    def walk(part: dict) -> str:
+        mime = part.get("mimeType", "")
+        body_data = part.get("body", {}).get("data", "")
+
+        if mime == "text/plain" and body_data:
+            return decode(body_data)
+        if mime == "text/html" and body_data:
+            return strip_html(decode(body_data))
+
+        # Recurse into multipart
+        for sub in part.get("parts", []):
+            result = walk(sub)
+            if result.strip():
+                return result
+        return ""
+
+    text = walk(payload).strip()
+    # Collapse whitespace runs and truncate
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit(" ", 1)[0] + " …"
+    return text
+
+
 def pull_google(company: str, config: dict, verbose: bool) -> dict:
     """
     Returns dict with: emails, drive_files, formatted_text.
@@ -531,17 +574,19 @@ def pull_google(company: str, config: dict, verbose: bool) -> dict:
                 msg = gmail_svc.users().messages().get(
                     userId="me",
                     id=msg_id,
-                    format="metadata",
-                    metadataHeaders=["Subject", "From", "Date"],
+                    format="full",
                 ).execute()
+                payload = msg.get("payload", {})
                 headers = {
                     h["name"]: h["value"]
-                    for h in msg.get("payload", {}).get("headers", [])
+                    for h in payload.get("headers", [])
                 }
+                body = _extract_gmail_body(payload)
                 emails.append({
                     "subject": headers.get("Subject", "(no subject)"),
                     "from": headers.get("From", "unknown"),
                     "date": headers.get("Date", ""),
+                    "body": body,
                 })
             except Exception:
                 continue
@@ -586,8 +631,13 @@ def _format_google(emails: list, drive_files: list) -> str:
     lines.append(f"### Gmail ({len(emails)} emails found)")
     if emails:
         for e in emails:
-            lines.append(f"- **Subject:** {e['subject']}")
-            lines.append(f"  **From:** {e['from']}  |  **Date:** {e['date']}")
+            lines.append(f"\n**Subject:** {e['subject']}")
+            lines.append(f"**From:** {e['from']}  |  **Date:** {e['date']}")
+            body = (e.get("body") or "").strip()
+            if body:
+                lines.append(f"**Body:**\n> {body.replace(chr(10), chr(10) + '> ')}")
+            else:
+                lines.append("_Body not available._")
     else:
         lines.append("No emails found.")
 
