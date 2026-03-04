@@ -301,14 +301,19 @@ Summarize the arc of our relationship with this account in **reverse chronologic
 ## Key People
 List every person we have on file at this account: CRM contacts (name, title, email), plus anyone who appears in Slack threads or email. Flag the most senior contacts and note anyone who appears across multiple sources as particularly relevant.
 
-## Open Threads & Unresolved Items
-Call out anything that appears unresolved or pending: open opportunities, overdue tasks, unanswered emails, or Slack threads that trailed off without a clear outcome. These are the highest-priority items to address before reaching out.
+## Account Intelligence
+What does this company actually care about, and why does it matter for how we sell to them? Cover: strategic priorities visible in the data (their internal AI/tech bets, key initiatives, org structure signals), how we've been positioning ourselves, what's working or not, and any meaningful relationship dynamics (champions, exec connections, competitive mentions). Keep this to 3–5 themes grounded in the data — no generic filler.
 
-## Key Themes
-What topics, concerns, or interests come up repeatedly across Slack, email, CRM notes, and news? (e.g. pricing pressure, a specific product use case, a competitor mention, a champion who changed roles, interest in AI/data, etc.) Keep this to the 3–5 most prominent themes.
+## Action Plan
+List 4–6 prioritized actions a rep should take immediately. Each item must follow this format:
 
-## Recommended Next Steps
-3–5 specific, actionable steps for a rep picking this account up with fresh eyes. Name who to contact, what angle to lead with, and what to avoid based on the history. Be direct.
+**[Action verb + specific person or thing]** — [one sentence explaining what's unresolved or why this matters, grounded in a specific data point]. [One sentence on exactly what to do or say.]
+
+Rules:
+- Lead with the single most urgent external action (outreach or meeting), not a CRM task.
+- Fold the "why" (what's open, what's pending, what data gap exists) into each action — do not create a separate list of unresolved items.
+- Include one CRM/process hygiene item at the end if relevant (e.g. log contacts, resolve open tasks, clean duplicates) — keep it brief.
+- Be direct. Name the person, the specific ask, and the angle. Avoid generic advice like "continue to nurture."
 
 ---
 
