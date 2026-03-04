@@ -10,10 +10,18 @@ Usage:
     python meeting_prep.py
     python meeting_prep.py --days 5
     python meeting_prep.py --days 3 --output-dir my_reports --verbose
+    python meeting_prep.py --email          # also sends HTML email
 
 Requirements:
     pip install google-api-python-client google-auth-oauthlib google-auth-httplib2
-    pip install slack-sdk requests anthropic python-dotenv
+    pip install slack-sdk requests anthropic python-dotenv markdown
+
+Email setup (.env):
+    EMAIL_TO=you@example.com         # recipient (defaults to SF_USERNAME)
+    SMTP_USER=you@gmail.com          # sender Gmail address
+    SMTP_PASSWORD=xxxx xxxx xxxx     # Gmail App Password (myaccount.google.com/apppasswords)
+    SMTP_HOST=smtp.gmail.com         # optional, default: smtp.gmail.com
+    SMTP_PORT=587                    # optional, default: 587
 
 Note: First run will open a browser for Google OAuth (one-time). Uses a
       separate token file from context.py so both scripts work independently.
@@ -24,6 +32,9 @@ import re
 import sys
 import time
 import argparse
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import date, datetime, timedelta, timezone
 
 import requests
@@ -70,6 +81,11 @@ def parse_args():
         action="store_true",
         help="Print detailed connector response info",
     )
+    parser.add_argument(
+        "--email",
+        action="store_true",
+        help="Convert output to HTML and email it (requires SMTP_USER and SMTP_PASSWORD in .env)",
+    )
     return parser.parse_args()
 
 
@@ -81,6 +97,12 @@ def load_config():
         "slack_user_token":        os.getenv("SLACK_USER_TOKEN"),
         "sf_username":             os.getenv("SF_USERNAME", ""),
         "google_credentials_file": os.getenv("GOOGLE_CREDENTIALS_FILE"),
+        # Email (optional — only needed with --email flag)
+        "smtp_host":               os.getenv("SMTP_HOST", "smtp.gmail.com"),
+        "smtp_port":               int(os.getenv("SMTP_PORT", "587")),
+        "smtp_user":               os.getenv("SMTP_USER", ""),
+        "smtp_password":           os.getenv("SMTP_PASSWORD", ""),
+        "email_to":                os.getenv("EMAIL_TO", ""),
     }
     if not config["anthropic_api_key"] or config["anthropic_api_key"].startswith("your_"):
         print("ERROR: Missing or placeholder ANTHROPIC_API_KEY in .env")
@@ -649,9 +671,6 @@ Write 5-7 specific, actionable bullet points covering:
 - Any sensitivities or things to avoid based on the relationship history
 - What you want the attendee to agree to or commit to by end of meeting
 
-## Suggested Agenda
-Propose a brief meeting agenda with time allocations based on the {duration} meeting duration. Be specific about who leads each section.
-
 ---
 
 Be specific and practical. Ground all claims in the provided data. Where information is missing, acknowledge it briefly and suggest a concrete action to fill the gap before the meeting (e.g., "Check their LinkedIn before the call"). Do NOT fabricate names, titles, or facts not present in the research.
@@ -733,6 +752,206 @@ def write_meeting_prep(briefs: list, days: int, output_dir: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Email (HTML conversion + SMTP send)
+# ---------------------------------------------------------------------------
+
+HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{subject}</title>
+<style>
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    color: #1a1a1a;
+    background: #f5f5f5;
+    margin: 0;
+    padding: 24px 16px;
+  }}
+  .wrapper {{
+    max-width: 760px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }}
+  .header {{
+    background: #0f0f0f;
+    color: #ffffff;
+    padding: 24px 32px;
+  }}
+  .header h1 {{
+    margin: 0 0 4px 0;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }}
+  .header p {{
+    margin: 0;
+    font-size: 13px;
+    color: #aaaaaa;
+  }}
+  .body {{
+    padding: 28px 32px;
+  }}
+  h1 {{ font-size: 22px; font-weight: 700; color: #0f0f0f; margin: 32px 0 12px; border-bottom: 2px solid #e8e8e8; padding-bottom: 8px; }}
+  h2 {{ font-size: 17px; font-weight: 600; color: #1a1a1a; margin: 24px 0 8px; }}
+  h3 {{ font-size: 15px; font-weight: 600; color: #333333; margin: 20px 0 6px; }}
+  p {{ margin: 0 0 12px; }}
+  ul, ol {{ margin: 0 0 12px; padding-left: 24px; }}
+  li {{ margin-bottom: 6px; }}
+  a {{ color: #0066cc; text-decoration: none; }}
+  a:hover {{ text-decoration: underline; }}
+  blockquote {{
+    margin: 12px 0;
+    padding: 10px 16px;
+    background: #fff8e6;
+    border-left: 4px solid #f5a623;
+    border-radius: 0 4px 4px 0;
+    color: #5a4000;
+    font-size: 14px;
+  }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px;
+    font-size: 14px;
+  }}
+  th {{
+    background: #f0f0f0;
+    text-align: left;
+    padding: 9px 12px;
+    font-weight: 600;
+    border: 1px solid #ddd;
+    color: #333;
+  }}
+  td {{
+    padding: 8px 12px;
+    border: 1px solid #e0e0e0;
+    vertical-align: top;
+  }}
+  tr:nth-child(even) td {{ background: #fafafa; }}
+  code {{
+    background: #f0f0f0;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 13px;
+    color: #c7254e;
+  }}
+  pre {{
+    background: #f6f6f6;
+    border-radius: 4px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13px;
+    border: 1px solid #e4e4e4;
+  }}
+  pre code {{ background: none; padding: 0; color: inherit; }}
+  hr {{ border: none; border-top: 1px solid #e8e8e8; margin: 24px 0; }}
+  .footer {{
+    text-align: center;
+    font-size: 12px;
+    color: #999;
+    padding: 16px 32px 24px;
+    border-top: 1px solid #efefef;
+  }}
+  /* Checkbox list items */
+  li input[type=checkbox] {{ margin-right: 6px; }}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    <h1>Meeting Prep Brief</h1>
+    <p>{subtitle}</p>
+  </div>
+  <div class="body">
+    {body}
+  </div>
+  <div class="footer">
+    Generated by meeting_prep.py &mdash; You.com
+  </div>
+</div>
+</body>
+</html>
+"""
+
+
+def markdown_to_html(md_content: str) -> str:
+    """Convert markdown string to HTML. Requires: pip install markdown"""
+    try:
+        import markdown as md_lib
+    except ImportError:
+        print("  WARN  `markdown` library not installed — install with: pip install markdown")
+        print("        Falling back to plain-text email body.")
+        return f"<pre>{md_content}</pre>"
+
+    # Convert GFM-style task list checkboxes before passing to markdown
+    md_prepped = re.sub(r"^- \[ \] ", "- ☐ ", md_content, flags=re.MULTILINE)
+    md_prepped = re.sub(r"^- \[x\] ", "- ☑ ", md_prepped, flags=re.MULTILINE)
+
+    return md_lib.markdown(
+        md_prepped,
+        extensions=["tables", "fenced_code", "nl2br", "sane_lists"],
+    )
+
+
+def send_email(markdown_content: str, subject: str, config: dict, verbose: bool) -> bool:
+    """Convert markdown to HTML and send via SMTP. Returns True on success."""
+    smtp_user = config.get("smtp_user", "")
+    smtp_password = config.get("smtp_password", "")
+    email_to = config.get("email_to", "") or config.get("sf_username", "")
+
+    if not smtp_user or not smtp_password:
+        print("  SKIP  Email: SMTP_USER or SMTP_PASSWORD not set in .env")
+        return False
+    if not email_to:
+        print("  SKIP  Email: no recipient — set EMAIL_TO in .env")
+        return False
+
+    today_str = date.today().strftime("%B %-d, %Y")
+    subtitle = f"{today_str}"
+
+    body_html = markdown_to_html(markdown_content)
+
+    full_html = HTML_TEMPLATE.format(
+        subject=subject,
+        subtitle=subtitle,
+        body=body_html,
+    )
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = smtp_user
+    msg["To"] = email_to
+    msg.attach(MIMEText(markdown_content, "plain", "utf-8"))
+    msg.attach(MIMEText(full_html, "html", "utf-8"))
+
+    try:
+        if verbose:
+            print(f"    [verbose] SMTP: {config['smtp_host']}:{config['smtp_port']} → {email_to}")
+        with smtplib.SMTP(config["smtp_host"], config["smtp_port"]) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, email_to, msg.as_string())
+        return True
+    except smtplib.SMTPAuthenticationError:
+        print("  ERROR Email: SMTP authentication failed.")
+        print("        For Gmail, use an App Password: myaccount.google.com/apppasswords")
+        return False
+    except Exception as e:
+        print(f"  ERROR Email: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -762,9 +981,7 @@ def main():
     print(f"  {len(events)} total events  |  {len(external_meetings)} with external attendees")
 
     if not external_meetings:
-        print("\n  No external meetings found in this window.")
-        filepath = write_meeting_prep([], args.days, args.output_dir)
-        print(f"\nDone! Report saved to: {filepath}")
+        print("\n  No external meetings found in this window. Exiting without report.")
         return
 
     for i, ev in enumerate(external_meetings, 1):
@@ -911,6 +1128,24 @@ def main():
     filepath = write_meeting_prep(briefs, args.days, args.output_dir)
 
     print(f"\nDone! Meeting prep saved to: {filepath}")
+
+    if args.email:
+        print("\nSending email...")
+        n = len(briefs)
+        orgs_label = ", ".join(
+            dict.fromkeys(org for md in all_meeting_data for org in md["orgs"])
+        )
+        subject = (
+            f"Meeting Prep: {date.today().strftime('%b %-d')} — "
+            f"{n} meeting{'s' if n != 1 else ''}"
+            + (f" ({orgs_label})" if orgs_label else "")
+        )
+        with open(filepath, encoding="utf-8") as f:
+            md_content = f.read()
+        ok = send_email(md_content, subject, config, args.verbose)
+        if ok:
+            print(f"  Email sent to: {config.get('email_to') or config.get('sf_username')}")
+
     print("=" * 60)
 
 
