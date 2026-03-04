@@ -619,11 +619,12 @@ def write_score_report(
     all_urls: list,
     output_dir: str,
 ) -> str:
-    os.makedirs(output_dir, exist_ok=True)
     slug = slugify(company)
     today = date.today().strftime("%Y-%m-%d")
-    filename = f"{slug}_{today}_fit_score.md"
-    filepath = os.path.join(output_dir, filename)
+    company_dir = os.path.join(output_dir, slug)
+    os.makedirs(company_dir, exist_ok=True)
+    filename = f"{today}_score.md"
+    filepath = os.path.join(company_dir, filename)
 
     tier_label, tier_icon, tier_note = get_tier(total_score)
     score_display = f"{total_score}/10" if total_score >= 0 else "N/A"

@@ -757,11 +757,12 @@ def synthesize_with_claude(company: str, connector_data: dict, api_key: str, ver
 # ---------------------------------------------------------------------------
 
 def write_context_report(company: str, report_body: str, output_dir: str) -> str:
-    os.makedirs(output_dir, exist_ok=True)
     slug = slugify(company)
     today = date.today().strftime("%Y-%m-%d")
-    filename = f"{slug}_{today}_internal_context.md"
-    filepath = os.path.join(output_dir, filename)
+    company_dir = os.path.join(output_dir, slug)
+    os.makedirs(company_dir, exist_ok=True)
+    filename = f"{today}_context.md"
+    filepath = os.path.join(company_dir, filename)
 
     content = (
         f"# {company} — Internal Account Context\n\n"

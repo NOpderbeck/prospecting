@@ -302,11 +302,12 @@ def synthesize_with_claude(company: str, extracted: dict, api_key: str, verbose:
 # ---------------------------------------------------------------------------
 
 def write_report(company: str, report_body: str, all_urls: list, output_dir: str) -> str:
-    os.makedirs(output_dir, exist_ok=True)
     slug = slugify(company)
     today = date.today().strftime("%Y-%m-%d")
-    filename = f"{slug}_{today}.md"
-    filepath = os.path.join(output_dir, filename)
+    company_dir = os.path.join(output_dir, slug)
+    os.makedirs(company_dir, exist_ok=True)
+    filename = f"{today}_research.md"
+    filepath = os.path.join(company_dir, filename)
 
     if all_urls:
         sources = "\n".join(f"- {url}" for url in all_urls)

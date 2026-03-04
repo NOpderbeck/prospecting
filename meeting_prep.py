@@ -725,10 +725,10 @@ def synthesize_meeting_prep(meeting_data: dict, api_key: str, verbose: bool) -> 
 def write_meeting_prep(briefs: list, days: int, output_dir: str) -> str:
     """Write all meeting prep briefs to a date-stamped subfolder."""
     today_str = date.today().strftime("%Y-%m-%d")
-    dated_dir = os.path.join(output_dir, today_str)
-    os.makedirs(dated_dir, exist_ok=True)
-    filename = f"meeting_prep_d{days}.md"
-    filepath = os.path.join(dated_dir, filename)
+    mp_dir = os.path.join(output_dir, "meeting_prep")
+    os.makedirs(mp_dir, exist_ok=True)
+    filename = f"{today_str}_d{days}.md"
+    filepath = os.path.join(mp_dir, filename)
 
     header = (
         f"# Meeting Prep Brief\n\n"

@@ -342,12 +342,11 @@ def synthesize_with_claude(
 
 def write_report(company: str, report_body: str, output_dir: str) -> str:
     today = date.today().strftime("%Y-%m-%d")
-    dated_dir = os.path.join(output_dir, today)
-    os.makedirs(dated_dir, exist_ok=True)
-
     slug = slugify(company)
-    filename = f"{slug}_lookup.md"
-    filepath = os.path.join(dated_dir, filename)
+    company_dir = os.path.join(output_dir, slug)
+    os.makedirs(company_dir, exist_ok=True)
+    filename = f"{today}_lookup.md"
+    filepath = os.path.join(company_dir, filename)
 
     content = (
         f"# {company} — Account Lookup\n\n"
