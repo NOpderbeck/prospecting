@@ -177,7 +177,7 @@ async def dashboard(request: Request):
 
 @app.get("/accounts", response_class=HTMLResponse)
 async def accounts_page(request: Request):
-    accounts = get_all_accounts()
+    accounts = [a for a in get_all_accounts() if not a.get("is_meeting_prep")]
     return templates.TemplateResponse("accounts.html", {
         "request": request,
         "accounts": accounts,
@@ -187,6 +187,8 @@ async def accounts_page(request: Request):
 
 @app.get("/account/{slug}", response_class=HTMLResponse)
 async def account_detail_page(request: Request, slug: str):
+    if slug == "meeting_prep":
+        raise HTTPException(status_code=404, detail="Not found")
     reports = get_account_reports(slug)
     display = slug.replace("-", " ").title()
     return templates.TemplateResponse("account.html", {
