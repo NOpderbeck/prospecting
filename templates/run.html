@@ -280,6 +280,14 @@ function startRun(e) {
         ? '<span class="status-ok">✓ Completed</span>'
         : `<span class="status-error">✗ Exited with code ${data.exit_code}</span>`;
       if (data.line) appendLine(data.line, 'term-line-out');
+      if (data.report_url) {
+        const el = document.getElementById('terminal-output');
+        const div = document.createElement('div');
+        div.className = 'term-line-ok term-report-link';
+        div.innerHTML = `📄 Report ready &mdash; <a href="${data.report_url}">View report</a>`;
+        el.appendChild(div);
+        el.scrollTop = el.scrollHeight;
+      }
       return;
     }
     const line = data.line || '';

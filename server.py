@@ -16,6 +16,7 @@ Usage:
 import os
 import sys
 import json
+import time
 import argparse
 import asyncio
 import subprocess
@@ -321,15 +322,37 @@ async def run_stream(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(BASE_DIR),
+                # Force line-by-line flushing — without this Python buffers
+                # output in large blocks when stdout is a pipe, causing the
+                # terminal to appear frozen until the script exits.
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
             )
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\n")
-                # SSE: escape any embedded newlines, send as data field
                 payload = json.dumps({"line": line})
                 yield f"data: {payload}\n\n"
             await proc.wait()
             exit_code = proc.returncode
-            yield f"data: {json.dumps({'done': True, 'exit_code': exit_code})}\n\n"
+
+            # After a successful run, find the newest report file written in
+            # the last 2 minutes so we can surface a direct link in the UI.
+            report_url = None
+            if exit_code == 0:
+                if script == "meeting_prep":
+                    check_dir = REPORTS_DIR / "meeting_prep"
+                else:
+                    check_dir = REPORTS_DIR / slugify(company)
+                if check_dir.exists():
+                    candidates = sorted(
+                        check_dir.glob("*.md"),
+                        key=lambda f: f.stat().st_mtime,
+                        reverse=True,
+                    )
+                    if candidates and (time.time() - candidates[0].stat().st_mtime) < 120:
+                        rel = candidates[0].relative_to(REPORTS_DIR)
+                        report_url = f"/report/{rel.parts[0]}/{rel.parts[1]}"
+
+            yield f"data: {json.dumps({'done': True, 'exit_code': exit_code, 'report_url': report_url})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'line': f'ERROR: {exc}', 'done': True, 'exit_code': 1})}\n\n"
 

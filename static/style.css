@@ -338,6 +338,9 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 .term-line-err  { color: #e8635a; }
 .term-line-ok   { color: var(--green); }
 .term-line-hdr  { color: var(--accent); font-weight: bold; }
+.term-report-link { margin-top: 6px; font-weight: 600; }
+.term-report-link a { color: var(--green); text-decoration: underline; }
+.term-report-link a:hover { color: #fff; }
 
 .spinner {
   display: inline-block;
