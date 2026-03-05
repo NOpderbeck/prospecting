@@ -34,6 +34,7 @@
               hx-swap="outerHTML"
               hx-confirm="Delete all {{ acct.file_count }} report{{ 's' if acct.file_count != 1 else '' }} for {{ acct.display }}?">🗑</button>
       {% else %}
+      <a class="btn btn-ghost btn-sm" href="/history/meeting_prep">📂 Reports</a>
       <a class="btn btn-primary btn-sm" href="/run?script=meeting_prep">▶ Run</a>
       {% endif %}
     </div>

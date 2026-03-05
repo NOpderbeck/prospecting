@@ -14,8 +14,12 @@
 </div>
 
 <div style="display:flex;gap:10px;margin-bottom:24px;">
+  {% if is_meeting_prep %}
+  <a class="btn btn-primary btn-sm" href="/run?script=meeting_prep">▶ Run Meeting Prep</a>
+  {% else %}
   <a class="btn btn-primary btn-sm" href="/run?company={{ display }}&script=lookup">▶ Run Lookup</a>
   <a class="btn btn-ghost btn-sm" href="/ask?company={{ slug }}">💬 Ask a Question</a>
+  {% endif %}
 </div>
 
 {% if reports %}

@@ -216,7 +216,8 @@ async def history_page(request: Request, slug: str):
     return templates.TemplateResponse("history.html", {
         "request": request,
         "slug": slug,
-        "display": slug.replace("-", " ").title(),
+        "display": slug.replace("-", " ").replace("_", " ").title(),
+        "is_meeting_prep": slug == "meeting_prep",
         "reports": reports,
         "script_meta": SCRIPT_META,
     })
