@@ -57,11 +57,7 @@
       <div class="form-group">
         <label for="days-select">Look-ahead window</label>
         <select class="form-control" id="days-select">
-          <option value="1">Today only (1 day)</option>
-          <option value="2">2 days</option>
-          <option value="3">3 days</option>
-          <option value="4">4 days</option>
-          <option value="5">5 days</option>
+          <!-- populated dynamically by buildDaysOptions() -->
         </select>
       </div>
       <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:2px;">
@@ -113,6 +109,83 @@
 let currentScript = document.getElementById('selected-script').value || 'lookup';
 let evtSource = null;
 
+// ---------------------------------------------------------------------------
+// Dynamically build look-ahead options, skipping weekends
+// ---------------------------------------------------------------------------
+function buildDaysOptions() {
+  const sel = document.getElementById('days-select');
+  if (!sel) return;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dow = today.getDay(); // 0=Sun … 6=Sat
+
+  function fmt(d) {
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  // Inclusive calendar-day count from today to target
+  function calDays(target) {
+    return Math.round((target - today) / 86400000) + 1;
+  }
+
+  // Return the Nth weekday counting from today (or next Mon if today is a weekend).
+  // n=0 → nearest weekday (today if weekday, else next Mon)
+  function nthWeekday(n) {
+    let d = new Date(today);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    let count = 0;
+    while (count < n) {
+      d.setDate(d.getDate() + 1);
+      if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+    }
+    return d;
+  }
+
+  // --- Today ---
+  const todayOpt = { days: 1, label: `Today — ${fmt(today)}`, name: 'Today' };
+
+  // --- Tomorrow: next weekday ---
+  let tmr = new Date(today);
+  if      (dow === 5) tmr.setDate(today.getDate() + 3); // Fri → Mon
+  else if (dow === 6) tmr.setDate(today.getDate() + 2); // Sat → Mon
+  else                tmr.setDate(today.getDate() + 1);
+  const tomorrowOpt = { days: calDays(tmr), label: `Tomorrow — ${fmt(tmr)}`, name: 'Tomorrow' };
+
+  // --- Next 3 Days: next 3 weekdays (starts from nearest weekday) ---
+  const wd0 = nthWeekday(0);
+  const wd2 = nthWeekday(2);
+  const next3Opt = {
+    days: calDays(wd2),
+    label: `Next 3 Days — ${fmt(wd0)} – ${fmt(wd2)}`,
+    name: 'Next 3 Days',
+  };
+
+  // --- This Week: today (or next Mon if weekend) through Friday ---
+  let wkStart, wkEnd;
+  if (dow === 0 || dow === 6) {
+    wkStart = nthWeekday(0);
+    wkEnd = new Date(wkStart); wkEnd.setDate(wkStart.getDate() + 4);
+  } else {
+    wkStart = new Date(today);
+    wkEnd = new Date(today); wkEnd.setDate(today.getDate() + (5 - dow));
+  }
+  const thisWeekOpt = {
+    days: calDays(wkEnd),
+    label: `This Week — ${fmt(wkStart)} – ${fmt(wkEnd)}`,
+    name: 'This Week',
+  };
+
+  sel.innerHTML = '';
+  [todayOpt, tomorrowOpt, next3Opt, thisWeekOpt].forEach(opt => {
+    const el = document.createElement('option');
+    el.value = opt.days;
+    el.textContent = opt.label;
+    el.dataset.name = opt.name;
+    sel.appendChild(el);
+  });
+}
+
 function selectScript(key) {
   currentScript = key;
   document.getElementById('selected-script').value = key;
@@ -131,7 +204,8 @@ function selectScript(key) {
   document.getElementById('domain-group').style.display = key === 'lookup' ? 'block' : 'none';
 }
 
-// Init visibility on load
+// Init on load
+buildDaysOptions();
 selectScript(currentScript);
 
 function clearTerminal() {
@@ -160,14 +234,16 @@ function startRun(e) {
   let termLabel;
 
   if (script === 'meeting_prep') {
-    const days  = document.getElementById('days-select').value;
-    const email = document.getElementById('email-check').checked;
+    const daysEl = document.getElementById('days-select');
+    const days   = daysEl.value;
+    const daysName = daysEl.options[daysEl.selectedIndex]?.dataset?.name || days;
+    const email  = document.getElementById('email-check').checked;
     params = new URLSearchParams({
       script, days,
       email:   email   ? 'true' : '',
       verbose: verbose ? 'true' : '',
     });
-    termLabel = `meeting_prep — ${days} day${days > 1 ? 's' : ''}`;
+    termLabel = `Meeting Prep — ${daysName}`;
   } else {
     const company = document.getElementById('company-input').value.trim();
     const domain  = document.getElementById('domain-input').value.trim();

@@ -292,7 +292,7 @@ async def run_stream(
     if script == "meeting_prep":
         # No company positional — uses --days instead
         try:
-            days_int = max(1, min(5, int(days)))
+            days_int = max(1, min(14, int(days)))
         except ValueError:
             days_int = 1
         cmd += ["--days", str(days_int)]
