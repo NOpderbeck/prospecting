@@ -164,7 +164,8 @@ Prospecting/
 ├── context.py               # Connector library (imported by lookup.py)
 ├── server.py                # FastAPI web UI
 ├── generate_it_doc.py       # IT admin document
-├── run_meeting_prep.sh      # Launchd wrapper script
+├── run_meeting_prep.sh      # Launchd wrapper for meeting prep
+├── run_server.sh            # Launchd wrapper for web server
 ├── requirements.txt
 ├── .env.example
 │
@@ -193,6 +194,46 @@ Prospecting/
 │
 └── static/
     └── style.css
+```
+
+---
+
+## Web Server
+
+`server.py` runs persistently via macOS launchd — it starts automatically at login and
+restarts itself if it ever exits.
+
+**Wrapper script:** `run_server.sh`
+- Uses `exec` so launchd tracks the Python process directly
+- Runs with `--no-reload` (stable single process, no file watcher overhead)
+- Logs to `logs/server_stdout.log` / `logs/server_stderr.log`
+
+**LaunchAgent:** `~/Library/LaunchAgents/com.you.prospecting-web.plist`
+- `RunAtLoad = true` — starts on login and immediately when loaded
+- `KeepAlive = true` — launchd auto-restarts the server whenever it exits
+
+**Management commands:**
+
+```bash
+# Check status (shows PID when running)
+launchctl list | grep prospecting
+
+# Restart after code changes
+launchctl stop com.you.prospecting-web   # KeepAlive triggers an automatic restart
+
+# Reload plist after editing it
+launchctl unload ~/Library/LaunchAgents/com.you.prospecting-web.plist
+launchctl load   ~/Library/LaunchAgents/com.you.prospecting-web.plist
+
+# View logs
+tail -f logs/server_stdout.log
+tail -f logs/server_stderr.log
+```
+
+For local development with hot-reload:
+```bash
+python server.py          # hot-reload on by default
+python server.py --no-reload  # disable reload (same as launchd mode)
 ```
 
 ---

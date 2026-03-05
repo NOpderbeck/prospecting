@@ -371,6 +371,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Prospecting Toolkit web server")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
+    parser.add_argument(
+        "--no-reload",
+        action="store_true",
+        help="Disable auto-reload (recommended when running under launchd)",
+    )
     return parser.parse_args()
 
 
@@ -378,4 +383,4 @@ if __name__ == "__main__":
     import uvicorn
     args = parse_args()
     print(f"Starting Prospecting Toolkit at http://{args.host}:{args.port}")
-    uvicorn.run("server:app", host=args.host, port=args.port, reload=True)
+    uvicorn.run("server:app", host=args.host, port=args.port, reload=not args.no_reload)
