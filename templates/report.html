@@ -5,7 +5,7 @@
 <div class="breadcrumb">
   <a href="/">Dashboard</a>
   <span class="sep">›</span>
-  <a href="/history/{{ slug }}">{{ display }}</a>
+  <a href="/account/{{ slug }}">{{ display }}</a>
   <span class="sep">›</span>
   <span>{{ report_date }} / {{ report_type }}</span>
 </div>
@@ -21,7 +21,7 @@
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <a class="btn btn-ghost btn-sm" href="/ask?company={{ slug }}&report_type={{ report_type }}">💬 Ask about this</a>
     <a class="btn btn-ghost btn-sm" href="/run?company={{ display }}&script={{ report_type }}">🔄 Re-run</a>
-    <a class="btn btn-ghost btn-sm" href="/history/{{ slug }}">← History</a>
+    <a class="btn btn-ghost btn-sm" href="/account/{{ slug }}">← Account</a>
   </div>
 </div>
 

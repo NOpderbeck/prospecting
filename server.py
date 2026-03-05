@@ -174,6 +174,29 @@ async def dashboard(request: Request):
     })
 
 
+@app.get("/accounts", response_class=HTMLResponse)
+async def accounts_page(request: Request):
+    accounts = get_all_accounts()
+    return templates.TemplateResponse("accounts.html", {
+        "request": request,
+        "accounts": accounts,
+        "active": "accounts",
+    })
+
+
+@app.get("/account/{slug}", response_class=HTMLResponse)
+async def account_detail_page(request: Request, slug: str):
+    reports = get_account_reports(slug)
+    display = slug.replace("-", " ").title()
+    return templates.TemplateResponse("account.html", {
+        "request": request,
+        "slug": slug,
+        "display": display,
+        "reports": reports,
+        "active": "accounts",
+    })
+
+
 @app.get("/run", response_class=HTMLResponse)
 async def run_page(request: Request, company: str = "", script: str = "lookup"):
     return templates.TemplateResponse("run.html", {

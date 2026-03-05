@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Accounts — Prospecting Toolkit{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Accounts</h2>
+  <p>{{ accounts|length }} account{{ 's' if accounts|length != 1 else '' }} with reports on file</p>
+</div>
+
+{% if accounts %}
+<div style="margin-bottom:20px;">
+  <input
+    class="form-control search-bar"
+    type="search"
+    id="account-search"
+    placeholder="Filter accounts…"
+    autocomplete="off"
+    oninput="filterAccounts(this.value)"
+    autofocus
+  />
+</div>
+
+<div class="card" style="padding:0;overflow:hidden;">
+  <ul class="account-list" id="account-list">
+    {% for acct in accounts %}
+    <li class="account-row" data-name="{{ acct.display | lower }}">
+      <a href="/account/{{ acct.slug }}" class="account-row-link">
+        <span class="account-name">{{ acct.display }}</span>
+        <span class="account-meta">
+          {% for rt in acct.report_types %}
+            <span class="badge badge-{{ rt }}">{{ rt }}</span>
+          {% endfor %}
+        </span>
+        <span class="account-right">
+          <span class="account-count">{{ acct.file_count }} report{{ 's' if acct.file_count != 1 else '' }}</span>
+          <span style="color:var(--muted);font-size:12px;">{{ acct.latest_date }}</span>
+          <span style="color:var(--muted);">→</span>
+        </span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div id="account-empty-filter" class="empty-state" style="display:none;">
+  <div class="empty-icon">🔍</div>
+  <p>No accounts match your search.</p>
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">📭</div>
+  <p>No accounts found in <code>reports/</code>.</p>
+  <p style="margin-top:10px;">
+    <a class="btn btn-primary" href="/run">▶ Run your first script</a>
+  </p>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  function filterAccounts(query) {
+    var q = query.trim().toLowerCase();
+    var rows = document.querySelectorAll('#account-list .account-row');
+    var visible = 0;
+    rows.forEach(function (row) {
+      var match = !q || (row.dataset.name || '').includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    var empty = document.getElementById('account-empty-filter');
+    if (empty) empty.style.display = (q && visible === 0) ? '' : 'none';
+  }
+  // Expose for oninput attribute
+  window.filterAccounts = filterAccounts;
+})();
+</script>
+{% endblock %}
