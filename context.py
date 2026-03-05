@@ -18,6 +18,7 @@ import re
 import sys
 import argparse
 from datetime import date
+from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
@@ -85,7 +86,8 @@ def load_config():
         "google_credentials_file": os.getenv("GOOGLE_CREDENTIALS_FILE"),
         # Drive false-positive exclusions (optional)
         "drive_exclude_files":     os.getenv("DRIVE_EXCLUDE_FILES", ""),
-
+        # SQLite DB path (for auto-populating account metadata)
+        "db_path": str(Path(__file__).parent / "prospecting.db"),
     }
     # Only the Anthropic key is required — everything else is optional
     if not config["anthropic_api_key"] or config["anthropic_api_key"].startswith("your_"):
@@ -246,6 +248,21 @@ def pull_salesforce(company: str, config: dict, verbose: bool) -> dict:
             print(f"    [verbose] SF Event query error: {e}")
 
     formatted_text = _format_salesforce(account, opps, contacts, activities, events, extra_note)
+
+    # Auto-persist SF URLs to the local DB (best-effort, never fails the script)
+    if config.get("db_path"):
+        try:
+            import db as db_module
+            sf_base = f"https://{sf.sf_instance}"
+            db_module.upsert_account_meta(
+                config["db_path"],
+                slugify(company),
+                sf_account_url     = f"{sf_base}/{account['Id']}",
+                sf_opportunity_url = (f"{sf_base}/{opps[0]['Id']}" if opps else None),
+            )
+        except Exception:
+            pass  # never fail the script over a DB write
+
     return {
         "account": account,
         "opportunities": opps,

@@ -1,0 +1,49 @@
+{# Metadata edit form — rendered standalone by HTMX swaps #}
+<div id="meta-panel" class="meta-panel card">
+  <div class="meta-panel-header">
+    <span class="meta-panel-title">Account Info</span>
+  </div>
+
+  <form hx-post="/account/{{ slug }}/meta"
+        hx-target="#meta-panel"
+        hx-swap="outerHTML">
+
+    <div class="meta-form-grid">
+      <label class="meta-label">SF Account URL</label>
+      <input class="form-control form-control-sm"
+             name="sf_account_url"
+             type="url"
+             placeholder="https://yourinstance.salesforce.com/001..."
+             value="{{ meta.get('sf_account_url') or '' }}"/>
+
+      <label class="meta-label">SF Opportunity URL</label>
+      <input class="form-control form-control-sm"
+             name="sf_opportunity_url"
+             type="url"
+             placeholder="https://yourinstance.salesforce.com/006..."
+             value="{{ meta.get('sf_opportunity_url') or '' }}"/>
+
+      <label class="meta-label">Slack Channel</label>
+      <input class="form-control form-control-sm"
+             name="slack_channel"
+             type="text"
+             placeholder="#internal-accountname"
+             value="{{ meta.get('slack_channel') or '' }}"/>
+
+      <label class="meta-label">Notes</label>
+      <input class="form-control form-control-sm"
+             name="notes"
+             type="text"
+             placeholder="Key contacts, renewal date, context..."
+             value="{{ meta.get('notes') or '' }}"/>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+      <button class="btn btn-ghost btn-sm" type="button"
+              hx-get="/account/{{ slug }}/meta"
+              hx-target="#meta-panel"
+              hx-swap="outerHTML">Cancel</button>
+    </div>
+  </form>
+</div>

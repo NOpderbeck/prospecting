@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
+import db as db_module
 from context import slugify
 from ask import find_reports, load_reports, ask_claude
 
@@ -42,8 +43,10 @@ load_dotenv(override=True)
 
 BASE_DIR = Path(__file__).parent
 REPORTS_DIR = BASE_DIR / "reports"
+DB_PATH = BASE_DIR / "prospecting.db"
 
 app = FastAPI(title="Prospecting Toolkit")
+db_module.init_db(DB_PATH)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
@@ -191,11 +194,15 @@ async def account_detail_page(request: Request, slug: str):
         raise HTTPException(status_code=404, detail="Not found")
     reports = get_account_reports(slug)
     display = slug.replace("-", " ").title()
+    meta    = db_module.get_account_meta(DB_PATH, slug)
+    actions = db_module.get_action_items(DB_PATH, slug)
     return templates.TemplateResponse("account.html", {
         "request": request,
         "slug": slug,
         "display": display,
         "reports": reports,
+        "meta": meta,
+        "actions": actions,
         "active": "accounts",
     })
 
@@ -268,6 +275,101 @@ async def delete_account(slug: str):
         raise HTTPException(status_code=404, detail="Account not found")
     shutil.rmtree(acct_dir)
     return Response(content="", status_code=200)
+
+
+# ---------------------------------------------------------------------------
+# Routes — Account metadata
+# ---------------------------------------------------------------------------
+
+@app.get("/account/{slug}/meta", response_class=HTMLResponse)
+async def get_meta_panel(request: Request, slug: str):
+    meta = db_module.get_account_meta(DB_PATH, slug)
+    return templates.TemplateResponse("_meta_panel.html", {
+        "request": request,
+        "slug": slug,
+        "meta": meta,
+    })
+
+
+@app.get("/account/{slug}/meta/edit", response_class=HTMLResponse)
+async def edit_meta_form(request: Request, slug: str):
+    meta = db_module.get_account_meta(DB_PATH, slug)
+    # Pre-fill slack channel suggestion if not set
+    if not meta.get("slack_channel"):
+        meta["slack_channel"] = f"#internal-{slug}"
+    return templates.TemplateResponse("_meta_form.html", {
+        "request": request,
+        "slug": slug,
+        "meta": meta,
+    })
+
+
+@app.post("/account/{slug}/meta", response_class=HTMLResponse)
+async def save_account_meta(request: Request, slug: str):
+    form = await request.form()
+    db_module.upsert_account_meta(
+        DB_PATH, slug,
+        sf_account_url     = form.get("sf_account_url", "").strip() or None,
+        sf_opportunity_url = form.get("sf_opportunity_url", "").strip() or None,
+        slack_channel      = form.get("slack_channel", "").strip() or None,
+        notes              = form.get("notes", "").strip() or None,
+    )
+    meta = db_module.get_account_meta(DB_PATH, slug)
+    return templates.TemplateResponse("_meta_panel.html", {
+        "request": request,
+        "slug": slug,
+        "meta": meta,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Routes — Action items
+# ---------------------------------------------------------------------------
+
+@app.post("/account/{slug}/actions", response_class=HTMLResponse)
+async def add_action(
+    request: Request,
+    slug: str,
+    text: str = Form(...),
+    source_report: str = Form(""),
+):
+    db_module.add_action_item(DB_PATH, slug, text, source_report or None)
+    actions = db_module.get_action_items(DB_PATH, slug)
+    return templates.TemplateResponse("_action_list.html", {
+        "request": request,
+        "slug": slug,
+        "actions": actions,
+    })
+
+
+@app.patch("/account/{slug}/actions/{item_id}", response_class=HTMLResponse)
+async def toggle_action(request: Request, slug: str, item_id: int):
+    item = db_module.toggle_action_item(DB_PATH, item_id)
+    return templates.TemplateResponse("_action_row.html", {
+        "request": request,
+        "slug": slug,
+        "item": item,
+    })
+
+
+@app.delete("/account/{slug}/actions/{item_id}")
+async def delete_action(slug: str, item_id: int):
+    db_module.delete_action_item(DB_PATH, item_id)
+    return Response(content="", status_code=200)
+
+
+# ---------------------------------------------------------------------------
+# Routes — Tasks (cross-account)
+# ---------------------------------------------------------------------------
+
+@app.get("/tasks", response_class=HTMLResponse)
+async def tasks_page(request: Request):
+    items = db_module.get_all_open_action_items(DB_PATH)
+    return templates.TemplateResponse("tasks.html", {
+        "request": request,
+        "items": items,
+        "active": "tasks",
+    })
 
 
 @app.get("/ask", response_class=HTMLResponse)

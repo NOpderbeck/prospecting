@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Open Tasks — Prospecting Toolkit{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Open Tasks</h2>
+  <p>{{ items|length }} open action item{{ 's' if items|length != 1 else '' }} across all accounts</p>
+</div>
+
+{% if items %}
+<div class="card" style="padding:0;overflow:hidden;">
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th>Account</th>
+        <th>Action Item</th>
+        <th>Source</th>
+        <th>Added</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr id="task-row-{{ item.id }}">
+        <td>
+          <a href="/account/{{ item.slug }}" style="color:var(--accent);font-weight:500;">
+            {{ item.slug.replace('-', ' ').title() }}
+          </a>
+        </td>
+        <td style="max-width:380px;">{{ item.text }}</td>
+        <td>
+          {% if item.source_report %}
+          <span class="badge badge-{{ item.source_report.split('_')[1].split('.')[0] if '_' in item.source_report else 'lookup' }}">
+            {{ item.source_report.split('_')[1].split('.')[0] if '_' in item.source_report else item.source_report }}
+          </span>
+          {% else %}
+          <span style="color:var(--muted);font-size:12px;">manual</span>
+          {% endif %}
+        </td>
+        <td style="white-space:nowrap;color:var(--muted);font-size:13px;">
+          {{ item.created_at[:10] if item.created_at else '—' }}
+        </td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="btn btn-ghost btn-sm"
+                  style="color:var(--green);"
+                  hx-patch="/account/{{ item.slug }}/actions/{{ item.id }}"
+                  hx-target="#task-row-{{ item.id }}"
+                  hx-swap="outerHTML"
+                  title="Mark complete">☑ Done</button>
+          <button class="btn btn-ghost btn-sm"
+                  style="color:var(--red);"
+                  hx-delete="/account/{{ item.slug }}/actions/{{ item.id }}"
+                  hx-target="#task-row-{{ item.id }}"
+                  hx-swap="outerHTML swap:200ms"
+                  hx-confirm="Delete this action item?">🗑</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">✅</div>
+  <p>No open action items. Add some from an <a href="/accounts">account page</a>.</p>
+</div>
+{% endif %}
+
+{% endblock %}

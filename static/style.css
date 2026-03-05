@@ -592,3 +592,123 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
   font-weight: 500; cursor: pointer;
 }
 .btn-danger:hover { filter: brightness(1.12); }
+
+/* ── Account Metadata Panel ──────────────────────────────── */
+.meta-panel {
+  padding: 16px 20px;
+  margin-bottom: 28px;
+}
+.meta-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.meta-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.meta-links {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.meta-link {
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.meta-link:hover { text-decoration: underline; }
+.meta-link-empty {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.meta-notes {
+  font-size: 13px;
+  color: var(--text);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.meta-form-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+.meta-label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.form-control-sm {
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+/* ── Action Items ────────────────────────────────────────── */
+.action-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 4px;
+}
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.action-row:last-child { border-bottom: none; }
+.action-row.done .action-text {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.action-check {
+  font-size: 16px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  color: var(--text);
+  line-height: 1;
+  flex-shrink: 0;
+}
+.action-check:hover { color: var(--accent); }
+.btn-reset {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.action-text {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.action-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.action-date {
+  font-size: 12px;
+  color: var(--muted);
+}
+.action-source { font-size: 11px; }
+.action-del { flex-shrink: 0; }
+.action-empty {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 8px 0;
+}

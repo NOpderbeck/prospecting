@@ -1,0 +1,40 @@
+{# Metadata display panel — rendered standalone by HTMX swaps #}
+<div id="meta-panel" class="meta-panel card">
+  <div class="meta-panel-header">
+    <span class="meta-panel-title">Account Info</span>
+    <button class="btn btn-ghost btn-sm"
+            hx-get="/account/{{ slug }}/meta/edit"
+            hx-target="#meta-panel"
+            hx-swap="outerHTML">✏️ Edit</button>
+  </div>
+
+  <div class="meta-links">
+    {% if meta.get('sf_account_url') %}
+    <a class="meta-link" href="{{ meta.sf_account_url }}" target="_blank" rel="noopener">
+      ☁️ SF Account ↗
+    </a>
+    {% else %}
+    <span class="meta-link meta-link-empty">☁️ SF Account</span>
+    {% endif %}
+
+    {% if meta.get('sf_opportunity_url') %}
+    <a class="meta-link" href="{{ meta.sf_opportunity_url }}" target="_blank" rel="noopener">
+      💼 SF Opportunity ↗
+    </a>
+    {% else %}
+    <span class="meta-link meta-link-empty">💼 SF Opportunity</span>
+    {% endif %}
+
+    {% if meta.get('slack_channel') %}
+    <a class="meta-link" href="slack://channel?team=&id={{ meta.slack_channel | replace('#','') }}" target="_blank" rel="noopener">
+      💬 {{ meta.slack_channel }} ↗
+    </a>
+    {% else %}
+    <span class="meta-link meta-link-empty">💬 Slack Channel</span>
+    {% endif %}
+  </div>
+
+  {% if meta.get('notes') %}
+  <div class="meta-notes">{{ meta.notes }}</div>
+  {% endif %}
+</div>

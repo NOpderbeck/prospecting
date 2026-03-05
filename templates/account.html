@@ -22,6 +22,9 @@
   </div>
 </div>
 
+<!-- ── Section 0: Account Metadata ───────────────────────── -->
+{% include "_meta_panel.html" %}
+
 <!-- ── Section 1: Reports ─────────────────────────────────── -->
 {% if reports %}
 <div class="card" style="padding:0;overflow:hidden;margin-bottom:36px;">
@@ -65,7 +68,31 @@
 </div>
 {% endif %}
 
-<!-- ── Section 2: Ask Claude ──────────────────────────────── -->
+<!-- ── Section 2: Action Items ────────────────────────────── -->
+<div style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+  <div>
+    <h3 style="font-size:16px;font-weight:600;color:var(--text);">Action Items</h3>
+    <p style="font-size:13px;color:var(--muted);margin-top:4px;">Track follow-ups for this account</p>
+  </div>
+</div>
+
+{% include "_action_list.html" %}
+
+<form style="display:flex;gap:8px;margin-top:12px;margin-bottom:36px;"
+      hx-post="/account/{{ slug }}/actions"
+      hx-target="#action-list-wrap"
+      hx-swap="outerHTML"
+      hx-on::after-request="this.reset()">
+  <input class="form-control"
+         name="text"
+         type="text"
+         placeholder="Add an action item…"
+         required
+         style="flex:1;"/>
+  <button class="btn btn-ghost btn-sm" type="submit">+ Add</button>
+</form>
+
+<!-- ── Section 3: Ask Claude ──────────────────────────────── -->
 <div style="margin-bottom:14px;">
   <h3 style="font-size:16px;font-weight:600;color:var(--text);">Ask Claude</h3>
   <p style="font-size:13px;color:var(--muted);margin-top:4px;">Query the reports above with natural language</p>

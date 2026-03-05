@@ -1,0 +1,25 @@
+{# Single action item row — swapped in-place on toggle #}
+<li id="action-{{ item.id }}"
+    class="action-row{% if item.completed %} done{% endif %}">
+  <button class="action-check btn-reset"
+          hx-patch="/account/{{ slug }}/actions/{{ item.id }}"
+          hx-target="#action-{{ item.id }}"
+          hx-swap="outerHTML"
+          title="{{ 'Mark incomplete' if item.completed else 'Mark complete' }}">
+    {{ '☑' if item.completed else '☐' }}
+  </button>
+  <span class="action-text">{{ item.text }}</span>
+  <span class="action-meta">
+    <span class="action-date">{{ item.created_at[:10] if item.created_at else '' }}</span>
+    {% if item.source_report %}
+    <span class="action-source badge badge-{{ item.source_report.split('_')[1].split('.')[0] if '_' in item.source_report else 'lookup' }}">
+      {{ item.source_report.split('_')[1].split('.')[0] if '_' in item.source_report else item.source_report }}
+    </span>
+    {% endif %}
+  </span>
+  <button class="btn btn-ghost btn-sm action-del"
+          style="color:var(--red);"
+          hx-delete="/account/{{ slug }}/actions/{{ item.id }}"
+          hx-target="#action-{{ item.id }}"
+          hx-swap="outerHTML swap:200ms">🗑</button>
+</li>

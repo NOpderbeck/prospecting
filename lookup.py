@@ -22,6 +22,7 @@ import sys
 import time
 import argparse
 from datetime import date
+from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
@@ -100,6 +101,8 @@ def load_config():
         "smtp_user":               os.getenv("SMTP_USER", ""),
         "smtp_password":           os.getenv("SMTP_PASSWORD", ""),
         "email_to":                os.getenv("EMAIL_TO", ""),
+        # SQLite DB path (for auto-populating account metadata)
+        "db_path": str(Path(__file__).parent / "prospecting.db"),
     }
     if not config["anthropic_api_key"] or config["anthropic_api_key"].startswith("your_"):
         print("ERROR: Missing or placeholder ANTHROPIC_API_KEY in .env")

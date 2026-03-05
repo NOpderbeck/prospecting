@@ -1,0 +1,12 @@
+{# Full action items list — re-rendered by add/delete operations #}
+<div id="action-list-wrap">
+  {% if actions %}
+  <ul class="action-list">
+    {% for item in actions %}
+    {% include "_action_row.html" %}
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="action-empty">No action items yet. Add one below.</p>
+  {% endif %}
+</div>
