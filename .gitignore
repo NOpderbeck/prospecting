@@ -13,8 +13,9 @@ dist/
 build/
 .python-version
 
-# Generated reports (kept local)
+# Generated reports and logs (kept local)
 reports/
+logs/
 
 # macOS
 .DS_Store
