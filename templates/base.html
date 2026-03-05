@@ -36,5 +36,63 @@
     {% block content %}{% endblock %}
   </main>
 </div>
+
+<!-- ── Confirmation Modal ─────────────────────────────── -->
+<div id="confirm-modal" class="modal-backdrop" aria-hidden="true">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <p id="modal-title" class="modal-msg"></p>
+    <div class="modal-actions">
+      <button id="modal-cancel" class="btn btn-ghost">Cancel</button>
+      <button id="modal-ok"     class="btn btn-danger">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var backdrop  = document.getElementById('confirm-modal');
+  var msgEl     = document.getElementById('modal-title');
+  var okBtn     = document.getElementById('modal-ok');
+  var cancelBtn = document.getElementById('modal-cancel');
+  var _resolve  = null;
+
+  function openModal(message) {
+    msgEl.textContent = message;
+    backdrop.classList.add('modal-open');
+    backdrop.setAttribute('aria-hidden', 'false');
+    okBtn.focus();
+  }
+
+  function closeModal() {
+    backdrop.classList.remove('modal-open');
+    backdrop.setAttribute('aria-hidden', 'true');
+    _resolve = null;
+  }
+
+  okBtn.addEventListener('click', function () {
+    if (_resolve) _resolve(true);
+    closeModal();
+  });
+
+  cancelBtn.addEventListener('click', closeModal);
+
+  backdrop.addEventListener('click', function (e) {
+    if (e.target === backdrop) closeModal();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // Replace browser window.confirm() for every hx-confirm on the page
+  document.body.addEventListener('htmx:confirm', function (e) {
+    e.preventDefault();
+    openModal(e.detail.question);
+    _resolve = function (confirmed) {
+      if (confirmed) e.detail.issueRequest(true);
+    };
+  });
+})();
+</script>
 </body>
 </html>

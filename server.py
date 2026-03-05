@@ -17,6 +17,7 @@ import os
 import sys
 import json
 import time
+import shutil
 import argparse
 import asyncio
 import subprocess
@@ -251,6 +252,18 @@ async def delete_report(slug: str, filename: str):
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="Report not found")
     filepath.unlink()
+    return Response(content="", status_code=200)
+
+
+@app.delete("/account/{slug}")
+async def delete_account(slug: str):
+    acct_dir = (REPORTS_DIR / slug).resolve()
+    # Security: slug must be a direct child of REPORTS_DIR (no traversal)
+    if acct_dir.parent != REPORTS_DIR.resolve():
+        raise HTTPException(status_code=400, detail="Invalid slug")
+    if not acct_dir.exists():
+        raise HTTPException(status_code=404, detail="Account not found")
+    shutil.rmtree(acct_dir)
     return Response(content="", status_code=200)
 
 

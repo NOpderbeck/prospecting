@@ -27,6 +27,12 @@
       {% if not acct.get('is_meeting_prep') %}
       <a class="btn btn-ghost btn-sm" href="/ask?company={{ acct.slug }}">💬 Ask</a>
       <a class="btn btn-primary btn-sm" href="/run?company={{ acct.display }}&script=lookup">▶ Run</a>
+      <button class="btn btn-ghost btn-sm"
+              style="color:var(--red);margin-left:auto;"
+              hx-delete="/account/{{ acct.slug }}"
+              hx-target="closest .card"
+              hx-swap="outerHTML"
+              hx-confirm="Delete all {{ acct.file_count }} report{{ 's' if acct.file_count != 1 else '' }} for {{ acct.display }}?">🗑</button>
       {% else %}
       <a class="btn btn-primary btn-sm" href="/run?script=meeting_prep">▶ Run</a>
       {% endif %}
