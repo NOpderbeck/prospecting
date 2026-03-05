@@ -54,6 +54,59 @@ GOOGLE_SCOPES = [
 ]
 GOOGLE_TOKEN_PATH = os.path.join(".credentials", "google_token_meeting.json")
 
+# ---------------------------------------------------------------------------
+# Internal meeting classification helpers
+# ---------------------------------------------------------------------------
+
+# Title phrases that reliably indicate internal-only recurring meetings.
+# All matches are case-insensitive substring checks.
+# Users can extend this list via INTERNAL_MEETING_KEYWORDS in .env.
+DEFAULT_INTERNAL_TITLE_PATTERNS: frozenset[str] = frozenset({
+    # Team cadence meetings
+    "team weekly", "team daily", "team standup", "team stand-up",
+    "team sync", "team meeting", "team check-in", "team huddle",
+    # Company-wide
+    "all hands", "all-hands", "town hall",
+    # Agile ceremonies
+    "standup", "stand-up", "retrospective", "retro",
+    "sprint planning", "sprint review", "sprint demo",
+    # Internal planning
+    "planning meeting", "quarterly planning",
+})
+
+
+def get_internal_title_patterns(config: dict) -> frozenset[str]:
+    """Return the merged set of internal-meeting title patterns.
+
+    Combines DEFAULT_INTERNAL_TITLE_PATTERNS with any extra keywords
+    supplied via the INTERNAL_MEETING_KEYWORDS env var (comma-separated).
+    """
+    extra_raw = config.get("internal_meeting_keywords", "")
+    if not extra_raw:
+        return DEFAULT_INTERNAL_TITLE_PATTERNS
+    extras = frozenset(k.strip().lower() for k in extra_raw.split(",") if k.strip())
+    return DEFAULT_INTERNAL_TITLE_PATTERNS | extras
+
+
+def is_internal_by_title(title: str, patterns: frozenset[str]) -> bool:
+    """Return True if the meeting title contains any internal-meeting pattern."""
+    t = title.lower()
+    return any(p in t for p in patterns)
+
+
+def get_internal_emails(config: dict) -> frozenset[str]:
+    """Return the set of personal/external email addresses that belong to
+    internal employees (e.g. a colleague who RSVPs from their personal Gmail).
+
+    Populated via the INTERNAL_EMAILS env var — comma-separated addresses.
+    These are treated identically to @<my_domain> addresses.
+    """
+    raw = config.get("internal_emails", "")
+    if not raw:
+        return frozenset()
+    return frozenset(e.strip().lower() for e in raw.split(",") if e.strip())
+
+
 # Consumer / personal email domains — never treated as corporate orgs
 PERSONAL_EMAIL_DOMAINS = {
     "gmail.com", "googlemail.com",
@@ -115,6 +168,9 @@ def load_config():
         "slack_user_token":        os.getenv("SLACK_USER_TOKEN"),
         "sf_username":             os.getenv("SF_USERNAME", ""),
         "google_credentials_file": os.getenv("GOOGLE_CREDENTIALS_FILE"),
+        # Internal-meeting classification (optional)
+        "internal_meeting_keywords": os.getenv("INTERNAL_MEETING_KEYWORDS", ""),
+        "internal_emails":           os.getenv("INTERNAL_EMAILS", ""),
         # Email (optional — only needed with --email flag)
         "smtp_host":               os.getenv("SMTP_HOST", "smtp.gmail.com"),
         "smtp_port":               int(os.getenv("SMTP_PORT", "587")),
@@ -275,14 +331,31 @@ def fetch_calendar_events(creds, days: int, verbose: bool) -> list:
         return []
 
 
-def is_external_meeting(event: dict, my_domain: str) -> bool:
-    """Return True if the event has at least one non-resource external attendee."""
+def is_external_meeting(
+    event: dict,
+    my_domain: str,
+    internal_title_patterns: frozenset[str] = frozenset(),
+    internal_emails: frozenset[str] = frozenset(),
+) -> bool:
+    """Return True if the event has at least one non-resource external attendee.
+
+    An event is classified as internal (returns False) when:
+      1. The title matches a known internal-meeting pattern (e.g. "team weekly"), OR
+      2. Every attendee is either on my_domain, on the internal_emails allowlist,
+         a Google resource calendar, or has declined.
+    """
     if event.get("status") == "cancelled":
         return False
     # Skip all-day events (have 'date' key, not 'dateTime')
     start = event.get("start", {})
     if "date" in start and "dateTime" not in start:
         return False
+
+    # Title-based classification: bail out immediately for known internal patterns
+    title = event.get("summary", "")
+    if internal_title_patterns and is_internal_by_title(title, internal_title_patterns):
+        return False
+
     attendees = event.get("attendees", [])
     if not attendees:
         return False
@@ -293,6 +366,8 @@ def is_external_meeting(event: dict, my_domain: str) -> bool:
         domain = email.split("@")[1]
         if domain == my_domain:
             continue
+        if email in internal_emails:          # personal address of a known internal person
+            continue
         if domain.endswith("calendar.google.com") or domain.endswith("resource.calendar.google.com"):
             continue
         if att.get("responseStatus") == "declined":
@@ -301,8 +376,16 @@ def is_external_meeting(event: dict, my_domain: str) -> bool:
     return False
 
 
-def get_external_attendees(event: dict, my_domain: str) -> list:
-    """Extract external attendees, deduped by email."""
+def get_external_attendees(
+    event: dict,
+    my_domain: str,
+    internal_emails: frozenset[str] = frozenset(),
+) -> list:
+    """Extract external attendees, deduped by email.
+
+    Attendees whose email appears in internal_emails are treated as internal
+    even if their address domain differs from my_domain.
+    """
     result = []
     seen = set()
     for att in event.get("attendees", []):
@@ -311,6 +394,8 @@ def get_external_attendees(event: dict, my_domain: str) -> list:
             continue
         domain = email.split("@")[1]
         if domain == my_domain:
+            continue
+        if email in internal_emails:
             continue
         if domain.endswith("calendar.google.com"):
             continue
@@ -1009,16 +1094,20 @@ def send_email(markdown_content: str, subject: str, config: dict, verbose: bool)
 def main():
     args = parse_args()
 
-    if not 1 <= args.days <= 5:
-        print("ERROR: --days must be between 1 and 5")
+    if not 1 <= args.days <= 14:
+        print("ERROR: --days must be between 1 and 14")
         sys.exit(1)
 
     config = load_config()
     my_domain = get_my_domain(config)
     youcom_key = config.get("youcom_api_key", "")
+    internal_title_patterns = get_internal_title_patterns(config)
+    internal_emails = get_internal_emails(config)
 
     print(f"\nMeeting Prep — Next {args.days} day{'s' if args.days > 1 else ''}")
     print(f"Your domain: @{my_domain}")
+    if internal_emails:
+        print(f"Internal email overrides: {len(internal_emails)} address(es)")
     print("=" * 60)
 
     # -----------------------------------------------------------------
@@ -1027,7 +1116,10 @@ def main():
     print("\n[1/5] Connecting to Google Calendar...")
     creds = get_google_creds(config, args.verbose)
     events = fetch_calendar_events(creds, args.days, args.verbose)
-    external_meetings = [e for e in events if is_external_meeting(e, my_domain)]
+    external_meetings = [
+        e for e in events
+        if is_external_meeting(e, my_domain, internal_title_patterns, internal_emails)
+    ]
 
     print(f"  {len(events)} total events  |  {len(external_meetings)} with external attendees")
 
@@ -1051,7 +1143,7 @@ def main():
 
     for meeting in external_meetings:
         title = meeting.get("summary", "(No title)")
-        ext_attendees = get_external_attendees(meeting, my_domain)
+        ext_attendees = get_external_attendees(meeting, my_domain, internal_emails)
 
         # Map email domain → company name (skip personal/consumer domains)
         domain_to_org = {}
