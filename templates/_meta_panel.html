@@ -2,10 +2,18 @@
 <div id="meta-panel" class="meta-panel card">
   <div class="meta-panel-header">
     <span class="meta-panel-title">Account Info</span>
-    <button class="btn btn-ghost btn-sm"
-            hx-get="/account/{{ slug }}/meta/edit"
-            hx-target="#meta-panel"
-            hx-swap="outerHTML">✏️ Edit</button>
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-ghost btn-sm meta-refresh"
+              hx-post="/account/{{ slug }}/meta/refresh"
+              hx-target="#meta-panel"
+              hx-swap="outerHTML"
+              hx-disabled-elt="this"
+              title="Re-pull from Salesforce">🔄</button>
+      <button class="btn btn-ghost btn-sm"
+              hx-get="/account/{{ slug }}/meta/edit"
+              hx-target="#meta-panel"
+              hx-swap="outerHTML">✏️ Edit</button>
+    </div>
   </div>
 
   <div class="meta-links">

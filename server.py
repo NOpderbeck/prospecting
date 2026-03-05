@@ -281,6 +281,34 @@ async def delete_account(slug: str):
 # Routes — Account metadata
 # ---------------------------------------------------------------------------
 
+@app.post("/account/{slug}/meta/refresh", response_class=HTMLResponse)
+async def refresh_meta(request: Request, slug: str):
+    """Re-pull SF URLs from Salesforce; auto-fill Slack channel if blank."""
+    from context import pull_salesforce
+    config = {
+        "sf_username":       os.getenv("SF_USERNAME"),
+        "sf_password":       os.getenv("SF_PASSWORD"),
+        "sf_security_token": os.getenv("SF_SECURITY_TOKEN"),
+        "sf_domain":         os.getenv("SF_DOMAIN", "login"),
+        "db_path":           str(DB_PATH),
+    }
+    # pull_salesforce writes SF URLs to the DB on success (best-effort)
+    display_name = slug.replace("-", " ").title()
+    pull_salesforce(display_name, config, verbose=False)
+
+    # Auto-fill Slack channel if still blank
+    meta = db_module.get_account_meta(DB_PATH, slug) or {}
+    if not meta.get("slack_channel"):
+        db_module.upsert_account_meta(DB_PATH, slug, slack_channel=f"#internal-{slug}")
+
+    meta = db_module.get_account_meta(DB_PATH, slug)
+    return templates.TemplateResponse("_meta_panel.html", {
+        "request": request,
+        "slug": slug,
+        "meta": meta,
+    })
+
+
 @app.get("/account/{slug}/meta", response_class=HTMLResponse)
 async def get_meta_panel(request: Request, slug: str):
     meta = db_module.get_account_meta(DB_PATH, slug)
