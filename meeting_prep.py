@@ -716,6 +716,92 @@ def search_recent_news(company: str, domain: str, api_key: str, verbose: bool) -
 # Claude Synthesis
 # ---------------------------------------------------------------------------
 
+# Known conferencing service domains for URL detection and labelling.
+_CONF_DOMAINS: tuple[str, ...] = (
+    "zoom.us",
+    "teams.microsoft.com",
+    "meet.google.com",
+    "webex.com",
+    "gotomeeting.com",
+    "bluejeans.com",
+    "chime.aws",
+    "whereby.com",
+)
+
+
+def _infer_conf_label(url: str) -> str:
+    """Return a human-readable service name for a conferencing URL."""
+    _LABEL_MAP = {
+        "zoom.us":             "Zoom",
+        "teams.microsoft.com": "Microsoft Teams",
+        "meet.google.com":     "Google Meet",
+        "webex.com":           "Webex",
+        "gotomeeting.com":     "GoToMeeting",
+        "bluejeans.com":       "BlueJeans",
+        "chime.aws":           "Amazon Chime",
+        "whereby.com":         "Whereby",
+    }
+    for domain, label in _LABEL_MAP.items():
+        if domain in url:
+            return label
+    return "Join meeting"
+
+
+def _first_conf_url(text: str) -> str:
+    """Return the first conferencing URL in text, or empty string.
+
+    Finds any https:// URL, strips trailing punctuation, then filters
+    to URLs from a known conferencing domain.
+    """
+    for raw_url in re.findall(r"https?://\S+", text):
+        url = raw_url.rstrip(".,;:!?)>\"'")
+        if any(domain in url for domain in _CONF_DOMAINS):
+            return url
+    return ""
+
+
+def extract_join_link(event: dict) -> str:
+    """Return a markdown-formatted join link (or plain text) for an event.
+
+    Priority order — stops at the first source that yields a result:
+      1. conferenceData.entryPoints  — structured, video type has the URI
+      2. hangoutLink                 — Google Meet direct link (top-level field)
+      3. location field              — linkified if conferencing URL, else plain text
+      4. description (full, no cap)  — regex scan for embedded Zoom/Teams links
+
+    Returns "Not provided" only if all four sources yield nothing.
+    """
+    # 1. conferenceData.entryPoints
+    conf_data = event.get("conferenceData") or {}
+    for entry in conf_data.get("entryPoints", []):
+        if entry.get("entryPointType") == "video":
+            uri = (entry.get("uri") or "").strip()
+            if uri:
+                return f"[{_infer_conf_label(uri)}]({uri})"
+
+    # 2. hangoutLink (Google Meet only)
+    hangout = (event.get("hangoutLink") or "").strip()
+    if hangout:
+        return f"[Google Meet]({hangout})"
+
+    # 3. location field
+    location = (event.get("location") or "").strip()
+    if location:
+        if any(domain in location for domain in _CONF_DOMAINS):
+            url = location.rstrip(".,;:!?)>\"'")
+            return f"[{_infer_conf_label(url)}]({url})"
+        return location  # physical address — return as-is
+
+    # 4. Full description scan
+    description_full = (event.get("description") or "").strip()
+    if description_full:
+        url = _first_conf_url(description_full)
+        if url:
+            return f"[{_infer_conf_label(url)}]({url})"
+
+    return "Not provided"
+
+
 def build_meeting_prompt(
     meeting: dict,
     external_attendees: list,
@@ -731,7 +817,7 @@ def build_meeting_prompt(
     start_str = start.get("dateTime", start.get("date", ""))
     end_str = end.get("dateTime", end.get("date", ""))
     title = meeting.get("summary", "(No title)")
-    location = meeting.get("location", "N/A")
+    location = extract_join_link(meeting)
     description = (meeting.get("description") or "").strip()[:600]
     duration = compute_duration(start_str, end_str)
     time_display = format_datetime_display(start_str) if start_str else "TBD"
