@@ -316,7 +316,9 @@ def synthesize_with_claude(
         print(f"    [verbose] Lookup prompt: {len(prompt):,} characters")
 
     try:
-        message = client.messages.create(
+        full_text = []
+        buf = ""
+        with client.messages.stream(
             model="claude-sonnet-4-6",
             max_tokens=4096,
             system=(
@@ -326,8 +328,16 @@ def synthesize_with_claude(
                 "data gaps honestly rather than speculating or filling them with assumptions."
             ),
             messages=[{"role": "user", "content": prompt}],
-        )
-        return message.content[0].text
+        ) as stream:
+            for chunk in stream.text_stream:
+                full_text.append(chunk)
+                buf += chunk
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    print(line, flush=True)
+        if buf:
+            print(buf, flush=True)
+        return "".join(full_text)
     except anthropic.AuthenticationError:
         print("ERROR: Anthropic API key is invalid.")
         sys.exit(1)

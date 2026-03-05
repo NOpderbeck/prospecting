@@ -908,7 +908,10 @@ def synthesize_meeting_prep(meeting_data: dict, api_key: str, verbose: bool) -> 
         print(f"    [verbose] Meeting prep prompt: {len(prompt):,} characters")
 
     try:
-        message = client.messages.create(
+        full_text = []
+        buf = ""  # accumulate partial lines until a \n arrives
+
+        with client.messages.stream(
             model="claude-sonnet-4-6",
             max_tokens=4096,
             system=(
@@ -919,8 +922,20 @@ def synthesize_meeting_prep(meeting_data: dict, api_key: str, verbose: bool) -> 
                 "information is unavailable rather than speculating."
             ),
             messages=[{"role": "user", "content": prompt}],
-        )
-        return message.content[0].text
+        ) as stream:
+            for chunk in stream.text_stream:
+                full_text.append(chunk)
+                buf += chunk
+                # Flush complete lines so the terminal updates in real time
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    print(line, flush=True)
+
+        # Print any trailing text that had no final newline
+        if buf:
+            print(buf, flush=True)
+
+        return "".join(full_text)
 
     except anthropic.AuthenticationError:
         print("ERROR: Anthropic API key is invalid.")

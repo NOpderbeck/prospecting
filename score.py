@@ -557,7 +557,9 @@ def score_with_claude(
         print(f"  [verbose] Scoring prompt: {len(prompt):,} characters")
 
     try:
-        message = client.messages.create(
+        full_text = []
+        buf = ""
+        with client.messages.stream(
             model="claude-sonnet-4-6",
             max_tokens=4096,
             system=(
@@ -567,8 +569,16 @@ def score_with_claude(
                 "if evidence is absent, you say so and score accordingly."
             ),
             messages=[{"role": "user", "content": prompt}],
-        )
-        body = message.content[0].text
+        ) as stream:
+            for chunk in stream.text_stream:
+                full_text.append(chunk)
+                buf += chunk
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    print(line, flush=True)
+        if buf:
+            print(buf, flush=True)
+        body = "".join(full_text)
 
         # Parse total score from the markdown table Claude writes
         total = _parse_total_score(body)

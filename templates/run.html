@@ -108,6 +108,7 @@
 <script>
 let currentScript = document.getElementById('selected-script').value || 'lookup';
 let evtSource = null;
+let streamDone = false;  // guard against onerror firing after clean completion
 
 // ---------------------------------------------------------------------------
 // Dynamically build look-ahead options, skipping weekends
@@ -226,6 +227,7 @@ function appendLine(text, cls) {
 function startRun(e) {
   e.preventDefault();
   if (evtSource) { evtSource.close(); }
+  streamDone = false;
 
   const script  = currentScript;
   const verbose = document.getElementById('verbose-check').checked;
@@ -273,6 +275,7 @@ function startRun(e) {
   evtSource.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.done) {
+      streamDone = true;
       evtSource.close();
       document.getElementById('run-btn').disabled = false;
       const ok = data.exit_code === 0;
@@ -299,6 +302,9 @@ function startRun(e) {
   };
 
   evtSource.onerror = () => {
+    // EventSource fires onerror when the server closes the connection, even
+    // after a clean finish.  Guard so a successful run is never overwritten.
+    if (streamDone) return;
     evtSource.close();
     document.getElementById('run-btn').disabled = false;
     document.getElementById('run-status').innerHTML = '<span class="status-error">✗ Stream error</span>';
