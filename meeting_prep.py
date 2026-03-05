@@ -171,6 +171,8 @@ def load_config():
         # Internal-meeting classification (optional)
         "internal_meeting_keywords": os.getenv("INTERNAL_MEETING_KEYWORDS", ""),
         "internal_emails":           os.getenv("INTERNAL_EMAILS", ""),
+        # Drive false-positive exclusions (optional)
+        "drive_exclude_files":       os.getenv("DRIVE_EXCLUDE_FILES", ""),
         # Email (optional — only needed with --email flag)
         "smtp_host":               os.getenv("SMTP_HOST", "smtp.gmail.com"),
         "smtp_port":               int(os.getenv("SMTP_PORT", "587")),
@@ -604,7 +606,7 @@ def pull_slack_context(company: str, config: dict, verbose: bool) -> str:
 # Google Drive Context
 # ---------------------------------------------------------------------------
 
-def pull_drive_context(company: str, creds, verbose: bool) -> dict:
+def pull_drive_context(company: str, creds, verbose: bool, exclude_files: list | None = None) -> dict:
     """
     Search Google Drive for documents mentioning the company.
     Flags any document that looks like an account plan.
@@ -637,6 +639,14 @@ def pull_drive_context(company: str, creds, verbose: bool) -> dict:
         if verbose:
             print(f"    [verbose] Drive error: {e}")
         return {"files": [], "account_plan": None, "formatted": f"_Drive search error: {e}_"}
+
+    # Filter out known false-positive files
+    if exclude_files:
+        exclude_lower = [n.lower() for n in exclude_files]
+        before = len(files)
+        files = [f for f in files if f.get("name", "").lower() not in exclude_lower]
+        if verbose and len(files) < before:
+            print(f"    [verbose] Drive: excluded {before - len(files)} file(s) by DRIVE_EXCLUDE_FILES")
 
     # Identify account plan documents
     plan_keywords = ["account plan", "account_plan", "acct plan", "qbr", "business plan", "strategic plan"]
@@ -1306,7 +1316,10 @@ def main():
     for org in all_orgs:
         print(f"  Searching: {org}")
         slack_ctx = pull_slack_context(org, config, args.verbose)
-        drive_ctx = pull_drive_context(org, creds, args.verbose)
+        exclude_files = [
+            n.strip() for n in config.get("drive_exclude_files", "").split(",") if n.strip()
+        ]
+        drive_ctx = pull_drive_context(org, creds, args.verbose, exclude_files=exclude_files)
 
         if org_contexts and args.verbose:
             time.sleep(0.2)

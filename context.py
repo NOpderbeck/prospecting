@@ -83,6 +83,8 @@ def load_config():
         "slack_user_token":       os.getenv("SLACK_USER_TOKEN"),
         # Google (optional)
         "google_credentials_file": os.getenv("GOOGLE_CREDENTIALS_FILE"),
+        # Drive false-positive exclusions (optional)
+        "drive_exclude_files":     os.getenv("DRIVE_EXCLUDE_FILES", ""),
 
     }
     # Only the Anthropic key is required — everything else is optional
@@ -610,6 +612,15 @@ def pull_google(company: str, config: dict, verbose: bool) -> dict:
     except Exception as e:
         if verbose:
             print(f"    [verbose] Drive error: {e}")
+
+    # Filter out known false-positive files
+    exclude_raw = config.get("drive_exclude_files", "") or ""
+    exclude_names = [n.strip().lower() for n in exclude_raw.split(",") if n.strip()]
+    if exclude_names:
+        before = len(drive_files)
+        drive_files = [f for f in drive_files if f.get("name", "").lower() not in exclude_names]
+        if verbose and len(drive_files) < before:
+            print(f"    [verbose] Drive: excluded {before - len(drive_files)} file(s) by DRIVE_EXCLUDE_FILES")
 
     if not emails and not drive_files:
         return {

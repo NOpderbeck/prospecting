@@ -135,6 +135,7 @@ cp .env.example .env
 | `MY_EMAIL_DOMAIN` | Optional | Override auto-detected user domain |
 | `INTERNAL_MEETING_KEYWORDS` | Optional | Comma-separated title phrases to classify as internal meetings |
 | `INTERNAL_EMAILS` | Optional | Comma-separated personal email addresses to treat as internal |
+| `DRIVE_EXCLUDE_FILES` | Optional | Comma-separated Drive file names to suppress from all account searches (e.g. generic pricing templates that match everywhere) |
 
 All connectors are optional — scripts degrade gracefully and skip unconfigured ones.
 
