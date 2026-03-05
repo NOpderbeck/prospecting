@@ -35,8 +35,14 @@
         <td>{{ r.date }}</td>
         <td><span class="badge badge-{{ r.type }}">{{ r.type }}</span></td>
         <td><code style="font-size:12px;color:var(--muted);">{{ r.filename }}</code></td>
-        <td style="text-align:right;">
+        <td style="text-align:right;white-space:nowrap;">
           <a class="btn btn-ghost btn-sm" href="/report/{{ slug }}/{{ r.filename }}">View →</a>
+          <button class="btn btn-ghost btn-sm"
+                  style="color:var(--red);margin-left:4px;"
+                  hx-delete="/report/{{ slug }}/{{ r.filename }}"
+                  hx-target="closest tr"
+                  hx-swap="outerHTML"
+                  hx-confirm="Delete {{ r.filename }}?">🗑</button>
         </td>
       </tr>
       {% endfor %}

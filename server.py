@@ -24,8 +24,8 @@ from datetime import date
 from pathlib import Path
 
 import markdown as md_lib
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
@@ -217,6 +217,18 @@ async def report_page(request: Request, slug: str, filename: str):
         "html_body": html_body,
         "raw": raw,
     })
+
+
+@app.delete("/report/{slug}/{filename}")
+async def delete_report(slug: str, filename: str):
+    filepath = (REPORTS_DIR / slug / filename).resolve()
+    # Security: ensure the resolved path stays inside REPORTS_DIR
+    if not str(filepath).startswith(str(REPORTS_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Report not found")
+    filepath.unlink()
+    return Response(content="", status_code=200)
 
 
 @app.get("/ask", response_class=HTMLResponse)
