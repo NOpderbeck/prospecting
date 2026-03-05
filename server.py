@@ -53,13 +53,6 @@ SCRIPT_META = {
         "color": "blue",
         "icon": "🔍",
     },
-    "context": {
-        "label": "Internal Context",
-        "script": "context.py",
-        "description": "Deep-dive into Salesforce history, Slack threads, and Google Drive for an account.",
-        "color": "purple",
-        "icon": "📁",
-    },
     "research": {
         "label": "Company Research",
         "script": "research.py",

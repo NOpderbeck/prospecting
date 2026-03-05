@@ -281,6 +281,9 @@ List every person we have on file at this account: CRM contacts (name, title, em
 ## Account Intelligence
 What does this company actually care about, and why does it matter for how we sell to them? Cover: strategic priorities visible in the data (their internal AI/tech bets, key initiatives, org structure signals), how we've been positioning ourselves, what's working or not, and any meaningful relationship dynamics (champions, exec connections, competitive mentions). Keep this to 3–5 themes grounded in the data — no generic filler.
 
+## Relevant Documents
+List any Google Drive files found for this account. For each: name (linked if a URL is available), file type, and last-modified date. Highlight any proposals, contracts, presentations, or meeting notes. If no Drive files were found, write a single sentence saying so.
+
 ## Action Plan
 List 4–6 prioritized actions a rep should take immediately. Each item must follow this format:
 
