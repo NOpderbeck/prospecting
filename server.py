@@ -74,6 +74,14 @@ SCRIPT_META = {
         "color": "orange",
         "icon": "📊",
     },
+    "meeting_prep": {
+        "label": "Meeting Prep",
+        "script": "meeting_prep.py",
+        "description": "Pull upcoming calendar events and generate attendee research briefs.",
+        "color": "teal",
+        "icon": "📅",
+        "no_company": True,  # does not take a company positional arg
+    },
 }
 
 REPORT_TYPE_ORDER = ["lookup", "context", "research", "score"]
@@ -88,6 +96,20 @@ def get_all_accounts() -> list[dict]:
     accounts = []
     if not REPORTS_DIR.exists():
         return accounts
+
+    # Include meeting_prep at the top if it has reports
+    mp_dir = REPORTS_DIR / "meeting_prep"
+    if mp_dir.exists():
+        mp_files = sorted(mp_dir.glob("*.md"))
+        if mp_files:
+            accounts.append({
+                "slug": "meeting_prep",
+                "display": "Meeting Prep",
+                "file_count": len(mp_files),
+                "latest_date": mp_files[-1].stem.split("_")[0],
+                "report_types": ["meeting_prep"],
+                "is_meeting_prep": True,
+            })
 
     SKIP_DIRS = {"meeting_prep"}
     for entry in sorted(REPORTS_DIR.iterdir()):
@@ -253,12 +275,14 @@ async def ask_query(
 
 @app.get("/run/stream")
 async def run_stream(
-    company: str,
+    company: str = "",
     script: str = "lookup",
     domain: str = "",
     news: str = "",
     url: str = "",
     verbose: str = "",
+    days: str = "1",
+    email: str = "",
 ):
     """SSE endpoint — streams subprocess stdout/stderr line by line."""
 
@@ -270,13 +294,30 @@ async def run_stream(
         return StreamingResponse(error_gen(), media_type="text/event-stream")
 
     # Build command
-    cmd = [sys.executable, str(BASE_DIR / script_info["script"]), company]
-    if domain:
-        cmd += ["--domain", domain]
-    if news == "true" and script == "lookup":
-        cmd.append("--news")
-    if url and script == "score":
-        cmd += ["--url", url]
+    cmd = [sys.executable, str(BASE_DIR / script_info["script"])]
+
+    if script == "meeting_prep":
+        # No company positional — uses --days instead
+        try:
+            days_int = max(1, min(5, int(days)))
+        except ValueError:
+            days_int = 1
+        cmd += ["--days", str(days_int)]
+        if email == "true":
+            cmd.append("--email")
+    else:
+        if not company:
+            async def error_gen():
+                yield f'data: {json.dumps({"line": "ERROR: company name is required", "done": True, "exit_code": 1})}\n\n'
+            return StreamingResponse(error_gen(), media_type="text/event-stream")
+        cmd.append(company)
+        if domain:
+            cmd += ["--domain", domain]
+        if news == "true" and script == "lookup":
+            cmd.append("--news")
+        if url and script == "score":
+            cmd += ["--url", url]
+
     if verbose == "true":
         cmd.append("--verbose")
 

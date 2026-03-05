@@ -174,11 +174,12 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
   text-transform: uppercase;
 }
 
-.badge-lookup   { background: #1a2e4a; color: #6c8ef5; }
-.badge-context  { background: #2a1e4a; color: #a47cf5; }
-.badge-research { background: #1a3a2a; color: #4caf8a; }
-.badge-score    { background: #3a2a10; color: #e8964d; }
-.badge-unknown  { background: var(--surface2); color: var(--muted); }
+.badge-lookup        { background: #1a2e4a; color: #6c8ef5; }
+.badge-context       { background: #2a1e4a; color: #a47cf5; }
+.badge-research      { background: #1a3a2a; color: #4caf8a; }
+.badge-score         { background: #3a2a10; color: #e8964d; }
+.badge-meeting_prep  { background: #0e2e30; color: #4ecdc4; }
+.badge-unknown       { background: var(--surface2); color: var(--muted); }
 
 /* ── Buttons ─────────────────────────────────────────────── */
 

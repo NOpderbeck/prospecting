@@ -14,6 +14,7 @@
     class="script-card {% if prefill_script == key %}selected{% endif %}"
     onclick="selectScript('{{ key }}')"
     data-script="{{ key }}"
+    data-no-company="{{ 'true' if meta.get('no_company') else 'false' }}"
     type="button"
   >
     <span class="script-icon">{{ meta.icon }}</span>
@@ -28,7 +29,8 @@
   <form id="run-form" onsubmit="startRun(event)">
     <input type="hidden" id="selected-script" value="{{ prefill_script }}"/>
 
-    <div class="form-row">
+    <!-- Company row — hidden for meeting_prep -->
+    <div class="form-row" id="company-row">
       <div class="form-group">
         <label for="company-input">Company name</label>
         <input
@@ -37,7 +39,6 @@
           type="text"
           placeholder="e.g. Deloitte"
           value="{{ prefill_company }}"
-          required
         />
       </div>
       <div class="form-group" id="domain-group">
@@ -48,6 +49,26 @@
           type="text"
           placeholder="e.g. deloitte.com"
         />
+      </div>
+    </div>
+
+    <!-- Meeting prep options — shown only for meeting_prep -->
+    <div class="form-row" id="meeting-prep-row" style="display:none;">
+      <div class="form-group">
+        <label for="days-select">Look-ahead window</label>
+        <select class="form-control" id="days-select">
+          <option value="1">Today only (1 day)</option>
+          <option value="2">2 days</option>
+          <option value="3">3 days</option>
+          <option value="4">4 days</option>
+          <option value="5">5 days</option>
+        </select>
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:2px;">
+        <div class="checkbox-group">
+          <input type="checkbox" id="email-check"/>
+          <label for="email-check">Email output when done</label>
+        </div>
       </div>
     </div>
 
@@ -98,9 +119,15 @@ function selectScript(key) {
   document.querySelectorAll('.script-card').forEach(c => c.classList.remove('selected'));
   document.querySelector(`[data-script="${key}"]`).classList.add('selected');
 
-  // Show/hide extra options
-  document.getElementById('opt-news').style.display  = key === 'lookup' ? 'flex' : 'none';
-  document.getElementById('opt-url').style.display   = key === 'score'  ? 'block' : 'none';
+  const isMeetingPrep = key === 'meeting_prep';
+
+  // Toggle company row vs meeting-prep row
+  document.getElementById('company-row').style.display      = isMeetingPrep ? 'none'  : 'grid';
+  document.getElementById('meeting-prep-row').style.display = isMeetingPrep ? 'grid'  : 'none';
+
+  // Show/hide account-script extras
+  document.getElementById('opt-news').style.display    = key === 'lookup' ? 'flex'  : 'none';
+  document.getElementById('opt-url').style.display     = key === 'score'  ? 'block' : 'none';
   document.getElementById('domain-group').style.display = key === 'lookup' ? 'block' : 'none';
 }
 
@@ -126,27 +153,43 @@ function startRun(e) {
   e.preventDefault();
   if (evtSource) { evtSource.close(); }
 
-  const company  = document.getElementById('company-input').value.trim();
-  const script   = currentScript;
-  const domain   = document.getElementById('domain-input').value.trim();
-  const news     = document.getElementById('news-check').checked;
-  const url      = document.getElementById('url-input').value.trim();
-  const verbose  = document.getElementById('verbose-check').checked;
+  const script  = currentScript;
+  const verbose = document.getElementById('verbose-check').checked;
 
-  if (!company) { alert('Please enter a company name.'); return; }
+  let params;
+  let termLabel;
+
+  if (script === 'meeting_prep') {
+    const days  = document.getElementById('days-select').value;
+    const email = document.getElementById('email-check').checked;
+    params = new URLSearchParams({
+      script, days,
+      email:   email   ? 'true' : '',
+      verbose: verbose ? 'true' : '',
+    });
+    termLabel = `meeting_prep — ${days} day${days > 1 ? 's' : ''}`;
+  } else {
+    const company = document.getElementById('company-input').value.trim();
+    const domain  = document.getElementById('domain-input').value.trim();
+    const news    = document.getElementById('news-check').checked;
+    const url     = document.getElementById('url-input').value.trim();
+
+    if (!company) { alert('Please enter a company name.'); return; }
+
+    params = new URLSearchParams({
+      company, script, domain,
+      news:    news    ? 'true' : '',
+      url:     url,
+      verbose: verbose ? 'true' : '',
+    });
+    termLabel = `${script} — ${company}`;
+  }
 
   clearTerminal();
 
-  const params = new URLSearchParams({
-    company, script, domain,
-    news:    news    ? 'true' : '',
-    url:     url,
-    verbose: verbose ? 'true' : '',
-  });
-
   document.getElementById('run-status').innerHTML =
     '<span class="spinner"></span><span class="status-running">Running…</span>';
-  document.getElementById('term-label').textContent = `${script} — ${company}`;
+  document.getElementById('term-label').textContent = termLabel;
   document.getElementById('run-btn').disabled = true;
 
   evtSource = new EventSource(`/run/stream?${params}`);
@@ -160,7 +203,6 @@ function startRun(e) {
       document.getElementById('run-status').innerHTML = ok
         ? '<span class="status-ok">✓ Completed</span>'
         : `<span class="status-error">✗ Exited with code ${data.exit_code}</span>`;
-      // If line also present on final message
       if (data.line) appendLine(data.line, 'term-line-out');
       return;
     }

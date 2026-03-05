@@ -24,8 +24,12 @@
     </div>
     <div class="card-actions">
       <a class="btn btn-ghost btn-sm" href="/history/{{ acct.slug }}">📂 History</a>
+      {% if not acct.get('is_meeting_prep') %}
       <a class="btn btn-ghost btn-sm" href="/ask?company={{ acct.slug }}">💬 Ask</a>
       <a class="btn btn-primary btn-sm" href="/run?company={{ acct.display }}&script=lookup">▶ Run</a>
+      {% else %}
+      <a class="btn btn-primary btn-sm" href="/run?script=meeting_prep">▶ Run</a>
+      {% endif %}
     </div>
   </div>
   {% endfor %}
