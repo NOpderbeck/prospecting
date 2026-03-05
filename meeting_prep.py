@@ -54,6 +54,24 @@ GOOGLE_SCOPES = [
 ]
 GOOGLE_TOKEN_PATH = os.path.join(".credentials", "google_token_meeting.json")
 
+# Consumer / personal email domains — never treated as corporate orgs
+PERSONAL_EMAIL_DOMAINS = {
+    "gmail.com", "googlemail.com",
+    "hotmail.com", "hotmail.co.uk", "hotmail.fr",
+    "outlook.com", "outlook.co.uk",
+    "live.com", "live.co.uk",
+    "yahoo.com", "yahoo.co.uk", "yahoo.fr", "yahoo.ca",
+    "icloud.com", "me.com", "mac.com",
+    "aol.com", "protonmail.com", "proton.me",
+    "msn.com", "comcast.net", "verizon.net",
+    "att.net", "sbcglobal.net",
+}
+
+
+def is_personal_email_domain(domain: str) -> bool:
+    """Return True if the domain is a consumer webmail provider."""
+    return domain.lower() in PERSONAL_EMAIL_DOMAINS
+
 
 # ---------------------------------------------------------------------------
 # CLI & Config
@@ -366,7 +384,10 @@ def research_attendee(name: str, company: str, email: str, api_key: str, verbose
     """
     Search You.com for the attendee's title/role from LinkedIn or other
     public sources. Falls back to email-derived name if display_name is empty.
-    Includes the email domain as a disambiguator for generic company names.
+
+    For personal email domains (gmail.com, hotmail.com, etc.) the company name
+    is meaningless, so we search by name only and rely solely on LinkedIn to
+    surface their actual employer/title.
     """
     if not name:
         # Derive a name from the email local part
@@ -374,25 +395,43 @@ def research_attendee(name: str, company: str, email: str, api_key: str, verbose
         name = local.replace(".", " ").replace("_", " ").replace("-", " ").title()
 
     domain = email.split("@")[1] if "@" in email else ""
-    domain_qualifier = f" {domain}" if domain else ""
+    personal = is_personal_email_domain(domain)
 
     snippets = ""
     data2 = None
 
-    # Primary: LinkedIn-focused search with domain disambiguator
-    q1 = f'"{name}" "{company}"{domain_qualifier} LinkedIn title role'
-    data1 = search_youcom(q1, api_key, num_results=3, verbose=verbose)
-    snippets = extract_snippets(data1, max_chars=700)
-    time.sleep(0.3)
-
-    # Fallback: broader public search
-    if not snippets or len(snippets) < 100:
-        q2 = f'"{name}" {company}{domain_qualifier} executive director manager position'
-        data2 = search_youcom(q2, api_key, num_results=3, verbose=verbose)
-        snippets2 = extract_snippets(data2, max_chars=700)
-        if len(snippets2) > len(snippets):
-            snippets = snippets2
+    if personal:
+        # Name-only LinkedIn search — no fake company/domain qualifier
+        q1 = f'"{name}" LinkedIn profile title role'
+        data1 = search_youcom(q1, api_key, num_results=3, verbose=verbose)
+        snippets = extract_snippets(data1, max_chars=700)
         time.sleep(0.3)
+
+        # Fallback: name + job-title keywords
+        if not snippets or len(snippets) < 100:
+            q2 = f'"{name}" LinkedIn executive director manager position'
+            data2 = search_youcom(q2, api_key, num_results=3, verbose=verbose)
+            snippets2 = extract_snippets(data2, max_chars=700)
+            if len(snippets2) > len(snippets):
+                snippets = snippets2
+            time.sleep(0.3)
+    else:
+        domain_qualifier = f" {domain}" if domain else ""
+
+        # Primary: LinkedIn-focused search with domain disambiguator
+        q1 = f'"{name}" "{company}"{domain_qualifier} LinkedIn title role'
+        data1 = search_youcom(q1, api_key, num_results=3, verbose=verbose)
+        snippets = extract_snippets(data1, max_chars=700)
+        time.sleep(0.3)
+
+        # Fallback: broader public search
+        if not snippets or len(snippets) < 100:
+            q2 = f'"{name}" {company}{domain_qualifier} executive director manager position'
+            data2 = search_youcom(q2, api_key, num_results=3, verbose=verbose)
+            snippets2 = extract_snippets(data2, max_chars=700)
+            if len(snippets2) > len(snippets):
+                snippets = snippets2
+            time.sleep(0.3)
 
     # Extract LinkedIn profile URL from whichever search returned results
     linkedin_url = ""
@@ -405,12 +444,17 @@ def research_attendee(name: str, company: str, email: str, api_key: str, verbose
         if linkedin_url:
             break
 
+    no_info_msg = (
+        f"No public profile information found for {name}."
+        if personal
+        else f"No public profile information found for {name} at {company}."
+    )
     return {
         "name": name,
         "email": email,
         "company": company,
-        "domain": email.split("@")[1] if "@" in email else "",
-        "research_snippets": snippets or f"No public profile information found for {name} at {company}.",
+        "domain": domain,
+        "research_snippets": snippets or no_info_msg,
         "linkedin_url": linkedin_url,
     }
 
@@ -1009,26 +1053,30 @@ def main():
         title = meeting.get("summary", "(No title)")
         ext_attendees = get_external_attendees(meeting, my_domain)
 
-        # Map email domain → company name
+        # Map email domain → company name (skip personal/consumer domains)
         domain_to_org = {}
         for att in ext_attendees:
             d = att["domain"]
-            if d not in domain_to_org:
+            if d not in domain_to_org and not is_personal_email_domain(d):
                 domain_to_org[d] = domain_to_company_name(d)
 
         orgs = list(dict.fromkeys(domain_to_org.values()))  # unique, order-preserving
+        personal_count = sum(1 for att in ext_attendees if is_personal_email_domain(att["domain"]))
         print(f"\n  → {title}")
         print(f"    Orgs: {', '.join(orgs) or 'none detected'}")
-        print(f"    External attendees: {len(ext_attendees)}")
+        print(f"    External attendees: {len(ext_attendees)}" + (f" ({personal_count} personal email)" if personal_count else ""))
 
         # Research each attendee
         attendee_research = []
         for att in ext_attendees:
             name = att.get("display_name", "")
-            company = domain_to_org.get(att["domain"], att["domain"])
+            personal = is_personal_email_domain(att["domain"])
+            # For personal domains use empty string so research_attendee does name-only search
+            company = "" if personal else domain_to_org.get(att["domain"], att["domain"])
             label = name or att["email"]
             if args.verbose:
-                print(f"    Researching: {label} @ {company}")
+                suffix = " (personal email — name-only search)" if personal else f" @ {company}"
+                print(f"    Researching: {label}{suffix}")
             else:
                 print(f"    Researching: {label}")
             result = research_attendee(name, company, att["email"], youcom_key, args.verbose)
