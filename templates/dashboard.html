@@ -23,8 +23,8 @@
       {% endfor %}
     </div>
     <div class="card-actions">
-      <a class="btn btn-ghost btn-sm" href="/account/{{ acct.slug }}">📂 Details</a>
       {% if not acct.get('is_meeting_prep') %}
+      <a class="btn btn-ghost btn-sm" href="/account/{{ acct.slug }}">📂 Details</a>
       <a class="btn btn-ghost btn-sm" href="/ask?company={{ acct.slug }}">💬 Ask</a>
       <a class="btn btn-primary btn-sm" href="/run?company={{ acct.display }}&script=lookup">▶ Run</a>
       <button class="btn btn-ghost btn-sm"
