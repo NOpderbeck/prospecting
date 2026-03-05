@@ -254,11 +254,13 @@ def pull_salesforce(company: str, config: dict, verbose: bool) -> dict:
         try:
             import db as db_module
             sf_base = f"https://{sf.sf_instance}"
+            open_opps = [o for o in opps if not o.get("IsClosed")]
+            best_opp = open_opps[0] if open_opps else None
             db_module.upsert_account_meta(
                 config["db_path"],
                 slugify(company),
                 sf_account_url     = f"{sf_base}/{account['Id']}",
-                sf_opportunity_url = (f"{sf_base}/{opps[0]['Id']}" if opps else None),
+                sf_opportunity_url = (f"{sf_base}/{best_opp['Id']}" if best_opp else None),
             )
         except Exception:
             pass  # never fail the script over a DB write
