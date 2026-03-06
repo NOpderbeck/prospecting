@@ -292,9 +292,19 @@ async def refresh_meta(request: Request, slug: str):
         "sf_domain":         os.getenv("SF_DOMAIN", "login"),
         "db_path":           str(DB_PATH),
     }
-    # pull_salesforce writes SF URLs to the DB on success (best-effort)
     display_name = slug.replace("-", " ").title()
-    pull_salesforce(display_name, config, verbose=False)
+
+    # Run blocking SF call in a thread — keeps the async event loop free
+    result = await asyncio.to_thread(pull_salesforce, display_name, config, False)
+
+    # Log the outcome to the server console so errors are always visible
+    if result.get("error"):
+        print(f"  [refresh] SF error for '{slug}': {result['error']}")
+    elif result.get("account") is None:
+        print(f"  [refresh] SF: no account found matching '{display_name}'")
+    else:
+        acct_name = (result.get("account") or {}).get("Name", "?")
+        print(f"  [refresh] SF OK — matched: {acct_name}")
 
     # Auto-fill Slack channel if still blank
     meta = db_module.get_account_meta(DB_PATH, slug) or {}
@@ -302,10 +312,20 @@ async def refresh_meta(request: Request, slug: str):
         db_module.upsert_account_meta(DB_PATH, slug, slack_channel=f"#internal-{slug}")
 
     meta = db_module.get_account_meta(DB_PATH, slug)
+
+    # Brief status badge for the panel
+    if result.get("error"):
+        refresh_msg = f"⚠ SF: {result['error']}"
+    elif result.get("account") is None:
+        refresh_msg = f"⚠ No SF account for '{display_name}'"
+    else:
+        refresh_msg = "✓ Refreshed"
+
     return templates.TemplateResponse("_meta_panel.html", {
         "request": request,
         "slug": slug,
         "meta": meta,
+        "refresh_msg": refresh_msg,
     })
 
 

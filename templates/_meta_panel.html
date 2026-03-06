@@ -16,6 +16,10 @@
     </div>
   </div>
 
+  {% if refresh_msg %}
+  <div class="meta-refresh-status {% if refresh_msg.startswith('✓') %}ok{% else %}warn{% endif %}">{{ refresh_msg }}</div>
+  {% endif %}
+
   <div class="meta-links">
     {% if meta.get('sf_account_url') %}
     <a class="meta-link" href="{{ meta.sf_account_url }}" target="_blank" rel="noopener">
