@@ -89,6 +89,7 @@
 
   // Replace browser window.confirm() for every hx-confirm on the page
   document.body.addEventListener('htmx:confirm', function (e) {
+    if (!e.detail.question) return;  // no hx-confirm on this element — let HTMX proceed
     e.preventDefault();
     openModal(e.detail.question);
     _resolve = function (confirmed) {
