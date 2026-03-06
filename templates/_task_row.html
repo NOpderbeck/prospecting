@@ -1,7 +1,8 @@
 {# Task table row — returned by HTMX toggle/delete on the /tasks page #}
 <tr id="task-row-{{ item.id }}"
     class="task-row{% if item.completed %} task-done{% endif %}"
-    data-completed="{{ '1' if item.completed else '0' }}">
+    data-completed="{{ '1' if item.completed else '0' }}"
+    data-slug="{{ item.slug }}">
   <td style="width:24px;text-align:center;padding-right:0;">
     <button class="action-check btn-reset"
             hx-patch="/account/{{ item.slug }}/actions/{{ item.id }}"

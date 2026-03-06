@@ -2,23 +2,36 @@
 {% block title %}Tasks — P0{% endblock %}
 
 {% block content %}
+{% set accounts = items | map(attribute='slug') | unique | list | sort %}
+
 <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
   <div>
     <h2>Tasks</h2>
     <p id="tasks-summary">{{ open_count }} open · {{ items|length - open_count }} done · {{ items|length }} total</p>
   </div>
 
-  <!-- Filter tabs -->
-  <div class="task-filter-bar">
-    <button class="task-filter-btn active" data-filter="open">
-      Open <span class="task-filter-count" id="count-open">{{ open_count }}</span>
-    </button>
-    <button class="task-filter-btn" data-filter="done">
-      Done <span class="task-filter-count" id="count-done">{{ items|length - open_count }}</span>
-    </button>
-    <button class="task-filter-btn" data-filter="all">
-      All <span class="task-filter-count" id="count-all">{{ items|length }}</span>
-    </button>
+  <!-- Controls: account filter + status tabs -->
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    {% if accounts|length > 1 %}
+    <select id="account-filter" class="account-filter-select">
+      <option value="">All accounts</option>
+      {% for slug in accounts %}
+      <option value="{{ slug }}">{{ slug.replace('-', ' ').title() }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+
+    <div class="task-filter-bar">
+      <button class="task-filter-btn active" data-filter="open">
+        Open <span class="task-filter-count" id="count-open">{{ open_count }}</span>
+      </button>
+      <button class="task-filter-btn" data-filter="done">
+        Done <span class="task-filter-count" id="count-done">{{ items|length - open_count }}</span>
+      </button>
+      <button class="task-filter-btn" data-filter="all">
+        All <span class="task-filter-count" id="count-all">{{ items|length }}</span>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -53,37 +66,72 @@
 
 <script>
 (function () {
-  var tbody    = document.getElementById('tasks-tbody');
+  var tbody      = document.getElementById('tasks-tbody');
   var filterBtns = document.querySelectorAll('.task-filter-btn');
+  var acctSel    = document.getElementById('account-filter');
 
-  // Switch filter
+  var statusFilter  = 'open';  // open | done | all
+  var accountFilter = '';      // '' = all accounts, otherwise a slug
+
+  // ── Core filter + count ─────────────────────────────────────────────────
+  function applyFilters() {
+    if (!tbody) return;
+    var rows = tbody.querySelectorAll('.task-row');
+    rows.forEach(function (row) {
+      var isDone   = row.classList.contains('task-done');
+      var matchSt  = statusFilter === 'all'  ||
+                     (statusFilter === 'open' && !isDone) ||
+                     (statusFilter === 'done' &&  isDone);
+      var matchAcc = !accountFilter || row.dataset.slug === accountFilter;
+      row.style.display = (matchSt && matchAcc) ? 'table-row' : 'none';
+    });
+    updateCounts();
+  }
+
+  function updateCounts() {
+    var rows = tbody ? tbody.querySelectorAll('.task-row') : [];
+    var open = 0, done = 0, total = 0;
+    rows.forEach(function (row) {
+      if (accountFilter && row.dataset.slug !== accountFilter) return;
+      total++;
+      if (row.classList.contains('task-done')) done++; else open++;
+    });
+    var cOpen   = document.getElementById('count-open');
+    var cDone   = document.getElementById('count-done');
+    var cAll    = document.getElementById('count-all');
+    var summary = document.getElementById('tasks-summary');
+    if (cOpen)   cOpen.textContent   = open;
+    if (cDone)   cDone.textContent   = done;
+    if (cAll)    cAll.textContent    = total;
+    if (summary) summary.textContent = open + ' open · ' + done + ' done · ' + total + ' total';
+  }
+
+  // ── Status filter tabs ───────────────────────────────────────────────────
   filterBtns.forEach(function (btn) {
     btn.addEventListener('click', function () {
       filterBtns.forEach(function (b) { b.classList.remove('active'); });
       this.classList.add('active');
-      tbody.dataset.filter = this.dataset.filter;
+      statusFilter = this.dataset.filter;
+      applyFilters();
     });
   });
 
-  // Recount after any HTMX swap (toggle or delete)
-  document.body.addEventListener('htmx:afterSwap', function (e) {
+  // ── Account filter ───────────────────────────────────────────────────────
+  if (acctSel) {
+    acctSel.addEventListener('change', function () {
+      accountFilter = this.value;
+      applyFilters();
+    });
+  }
+
+  // ── Re-apply after HTMX swap (toggle or delete) ─────────────────────────
+  document.body.addEventListener('htmx:afterSwap', function () {
     if (!tbody) return;
-    var rows     = tbody.querySelectorAll('.task-row');
-    var doneRows = tbody.querySelectorAll('.task-done');
-    var open = rows.length - doneRows.length;
-    var done = doneRows.length;
-    var total = rows.length;
-
-    var cOpen  = document.getElementById('count-open');
-    var cDone  = document.getElementById('count-done');
-    var cAll   = document.getElementById('count-all');
-    var summary = document.getElementById('tasks-summary');
-
-    if (cOpen)  cOpen.textContent  = open;
-    if (cDone)  cDone.textContent  = done;
-    if (cAll)   cAll.textContent   = total;
-    if (summary) summary.textContent = open + ' open · ' + done + ' done · ' + total + ' total';
+    applyFilters();
   });
+
+  // Initial apply (replaces CSS-only approach for consistency)
+  applyFilters();
 })();
 </script>
 
