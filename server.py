@@ -45,7 +45,7 @@ BASE_DIR = Path(__file__).parent
 REPORTS_DIR = BASE_DIR / "reports"
 DB_PATH = BASE_DIR / "prospecting.db"
 
-app = FastAPI(title="Prospecting Toolkit")
+app = FastAPI(title="P0")
 db_module.init_db(DB_PATH)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
@@ -588,5 +588,5 @@ def parse_args():
 if __name__ == "__main__":
     import uvicorn
     args = parse_args()
-    print(f"Starting Prospecting Toolkit at http://{args.host}:{args.port}")
+    print(f"Starting P0 at http://{args.host}:{args.port}")
     uvicorn.run("server:app", host=args.host, port=args.port, reload=not args.no_reload)

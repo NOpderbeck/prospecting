@@ -62,17 +62,34 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
   margin-bottom: 12px;
 }
 
-.sidebar-logo h1 {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: 0.02em;
+.logo-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--accent);
+}
+.logo-link:hover { text-decoration: none; color: var(--accent-h); }
+
+.logo-mark {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
 }
 
-.sidebar-logo p {
-  font-size: 12px;
+.logo-wordmark {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.logo-sub {
+  font-size: 11px;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .sidebar nav a {

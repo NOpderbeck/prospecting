@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>{% block title %}Prospecting Toolkit{% endblock %}</title>
+  <title>{% block title %}P0{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg"/>
   <link rel="stylesheet" href="/static/style.css"/>
   <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
 </head>
@@ -12,8 +13,18 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-logo">
-      <h1>⚡ Prospecting</h1>
-      <p>You.com Sales Toolkit</p>
+      <a href="/" class="logo-link">
+        <svg class="logo-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <path d="M 79.7,79.7 A 42,42 0 1,1 90.6,60.9"
+                stroke="currentColor" stroke-width="9.5" stroke-linecap="round"/>
+          <line x1="36" y1="10" x2="36" y2="90"
+                stroke="currentColor" stroke-width="9.5" stroke-linecap="round"/>
+          <path d="M 36,10 A 21,21 0 0,1 36,52"
+                stroke="currentColor" stroke-width="9.5" stroke-linecap="round"/>
+        </svg>
+        <span class="logo-wordmark">P0</span>
+      </a>
+      <p class="logo-sub">Sales Toolkit</p>
     </div>
     <nav>
       <a href="/" class="{% if active == 'dashboard' %}active{% endif %}">
