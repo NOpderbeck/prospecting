@@ -57,6 +57,8 @@
   </table>
 </div>
 
+<div id="tasks-pagination"></div>
+
 {% else %}
 <div class="empty-state">
   <div class="empty-icon">✅</div>
@@ -66,72 +68,139 @@
 
 <script>
 (function () {
-  var tbody      = document.getElementById('tasks-tbody');
-  var filterBtns = document.querySelectorAll('.task-filter-btn');
-  var acctSel    = document.getElementById('account-filter');
+  var tbody        = document.getElementById('tasks-tbody');
+  var filterBtns   = document.querySelectorAll('.task-filter-btn');
+  var acctSel      = document.getElementById('account-filter');
+  var paginationEl = document.getElementById('tasks-pagination');
 
-  var statusFilter  = 'open';  // open | done | all
-  var accountFilter = '';      // '' = all accounts, otherwise a slug
+  var PAGE_SIZE     = 25;
+  var statusFilter  = 'open';
+  var accountFilter = '';
+  var currentPage   = 1;
 
-  // ── Core filter + count ─────────────────────────────────────────────────
-  function applyFilters() {
-    if (!tbody) return;
-    var rows = tbody.querySelectorAll('.task-row');
-    rows.forEach(function (row) {
+  // ── Filtered row list ─────────────────────────────────────────────────
+  function getVisible() {
+    if (!tbody) return [];
+    return Array.prototype.filter.call(tbody.querySelectorAll('.task-row'), function (row) {
       var isDone   = row.classList.contains('task-done');
       var matchSt  = statusFilter === 'all'  ||
                      (statusFilter === 'open' && !isDone) ||
                      (statusFilter === 'done' &&  isDone);
       var matchAcc = !accountFilter || row.dataset.slug === accountFilter;
-      row.style.display = (matchSt && matchAcc) ? 'table-row' : 'none';
+      return matchSt && matchAcc;
     });
+  }
+
+  // ── Show the right slice of visible rows ──────────────────────────────
+  function render(resetPage) {
+    if (!tbody) return;
+    if (resetPage) currentPage = 1;
+
+    var visible    = getVisible();
+    var total      = visible.length;
+    var totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    currentPage    = Math.min(Math.max(1, currentPage), totalPages);
+
+    var start = (currentPage - 1) * PAGE_SIZE;
+    var end   = start + PAGE_SIZE;
+
+    // Hide all, then show the current page slice
+    tbody.querySelectorAll('.task-row').forEach(function (row) { row.style.display = 'none'; });
+    visible.forEach(function (row, i) {
+      if (i >= start && i < end) row.style.display = 'table-row';
+    });
+
+    renderPagination(total, totalPages);
     updateCounts();
   }
 
+  // ── Pagination controls ───────────────────────────────────────────────
+  function renderPagination(total, totalPages) {
+    if (!paginationEl) return;
+    if (totalPages <= 1) { paginationEl.innerHTML = ''; return; }
+
+    var parts = ['<div class="pagination">'];
+
+    // Prev
+    parts.push('<button class="page-btn"' + (currentPage === 1 ? ' disabled' : '') +
+               ' data-pg="' + (currentPage - 1) + '">‹</button>');
+
+    // Page numbers with ellipsis
+    var shown = {};
+    [1, totalPages, currentPage - 1, currentPage, currentPage + 1]
+      .filter(function (p) { return p >= 1 && p <= totalPages; })
+      .sort(function (a, b) { return a - b; })
+      .forEach(function (p) { shown[p] = true; });
+
+    var prev = 0;
+    Object.keys(shown).map(Number).sort(function (a, b) { return a - b; }).forEach(function (p) {
+      if (prev && p - prev > 1) parts.push('<span class="page-gap">…</span>');
+      parts.push('<button class="page-btn' + (p === currentPage ? ' active' : '') +
+                 '" data-pg="' + p + '">' + p + '</button>');
+      prev = p;
+    });
+
+    // Next
+    parts.push('<button class="page-btn"' + (currentPage === totalPages ? ' disabled' : '') +
+               ' data-pg="' + (currentPage + 1) + '">›</button>');
+
+    parts.push('</div>');
+    paginationEl.innerHTML = parts.join('');
+  }
+
+  // ── Tab counts (reflect account filter, ignore status filter) ─────────
   function updateCounts() {
-    var rows = tbody ? tbody.querySelectorAll('.task-row') : [];
+    if (!tbody) return;
     var open = 0, done = 0, total = 0;
-    rows.forEach(function (row) {
+    tbody.querySelectorAll('.task-row').forEach(function (row) {
       if (accountFilter && row.dataset.slug !== accountFilter) return;
       total++;
       if (row.classList.contains('task-done')) done++; else open++;
     });
-    var cOpen   = document.getElementById('count-open');
-    var cDone   = document.getElementById('count-done');
-    var cAll    = document.getElementById('count-all');
+    var ids = { 'count-open': open, 'count-done': done, 'count-all': total };
+    Object.keys(ids).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = ids[id];
+    });
     var summary = document.getElementById('tasks-summary');
-    if (cOpen)   cOpen.textContent   = open;
-    if (cDone)   cDone.textContent   = done;
-    if (cAll)    cAll.textContent    = total;
     if (summary) summary.textContent = open + ' open · ' + done + ' done · ' + total + ' total';
   }
 
-  // ── Status filter tabs ───────────────────────────────────────────────────
+  // ── Pagination click (event delegation) ──────────────────────────────
+  if (paginationEl) {
+    paginationEl.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-pg]');
+      if (!btn || btn.disabled) return;
+      var pg = parseInt(btn.dataset.pg, 10);
+      if (!isNaN(pg) && pg >= 1) { currentPage = pg; render(false); }
+    });
+  }
+
+  // ── Status filter tabs ────────────────────────────────────────────────
   filterBtns.forEach(function (btn) {
     btn.addEventListener('click', function () {
       filterBtns.forEach(function (b) { b.classList.remove('active'); });
       this.classList.add('active');
       statusFilter = this.dataset.filter;
-      applyFilters();
+      render(true);
     });
   });
 
-  // ── Account filter ───────────────────────────────────────────────────────
+  // ── Account filter ────────────────────────────────────────────────────
   if (acctSel) {
     acctSel.addEventListener('change', function () {
       accountFilter = this.value;
-      applyFilters();
+      render(true);
     });
   }
 
-  // ── Re-apply after HTMX swap (toggle or delete) ─────────────────────────
+  // ── Re-render after HTMX swap (toggle / delete) ──────────────────────
   document.body.addEventListener('htmx:afterSwap', function () {
-    if (!tbody) return;
-    applyFilters();
+    if (tbody) render(false);   // preserve current page
   });
 
-  // Initial apply (replaces CSS-only approach for consistency)
-  applyFilters();
+  // ── Initial render ────────────────────────────────────────────────────
+  render(false);
 })();
 </script>
 

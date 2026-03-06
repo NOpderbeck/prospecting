@@ -547,6 +547,32 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 .account-filter-select:hover { border-color: var(--accent); }
 .account-filter-select:focus { border-color: var(--accent); }
 
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 20px 0 8px;
+}
+.page-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.page-btn:hover:not(:disabled) { background: var(--surface); color: var(--text); border-color: var(--accent); }
+.page-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; cursor: default; }
+.page-btn:disabled { opacity: 0.35; cursor: default; }
+.page-gap { color: var(--muted); font-size: 13px; padding: 0 2px; }
+
 /* JS-driven row filtering replaces CSS-only approach */
 /* (CSS rules kept as harmless fallback) */
 #tasks-tbody[data-filter="open"] .task-done            { display: none; }
