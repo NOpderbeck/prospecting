@@ -57,7 +57,7 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 }
 
 .sidebar-logo {
-  padding: 0 20px 20px;
+  padding: 0 20px 14px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 12px;
 }
@@ -65,29 +65,29 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 .logo-link {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   text-decoration: none;
   color: var(--accent);
 }
 .logo-link:hover { text-decoration: none; color: var(--accent-h); }
 
 .logo-mark {
-  width: 34px;
-  height: 34px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
 }
 
 .logo-wordmark {
-  font-size: 24px;
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   line-height: 1;
 }
 
 .logo-sub {
   font-size: 11px;
   color: var(--muted);
-  margin-top: 5px;
+  margin-top: 3px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
