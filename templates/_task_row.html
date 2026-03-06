@@ -2,6 +2,15 @@
 <tr id="task-row-{{ item.id }}"
     class="task-row{% if item.completed %} task-done{% endif %}"
     data-completed="{{ '1' if item.completed else '0' }}">
+  <td style="width:24px;text-align:center;padding-right:0;">
+    <button class="action-check btn-reset"
+            hx-patch="/account/{{ item.slug }}/actions/{{ item.id }}"
+            hx-target="#task-row-{{ item.id }}"
+            hx-swap="outerHTML"
+            title="{{ 'Mark incomplete' if item.completed else 'Mark complete' }}">
+      {{ '☑' if item.completed else '☐' }}
+    </button>
+  </td>
   <td>
     <a href="/account/{{ item.slug }}" style="color:var(--accent);font-weight:500;">
       {{ item.slug.replace('-', ' ').title() }}
@@ -21,15 +30,8 @@
     {{ item.created_at[:10] if item.created_at else '—' }}
   </td>
   <td style="text-align:right;white-space:nowrap;">
-    <button class="action-check btn-reset"
-            hx-patch="/account/{{ item.slug }}/actions/{{ item.id }}"
-            hx-target="#task-row-{{ item.id }}"
-            hx-swap="outerHTML"
-            title="{{ 'Mark incomplete' if item.completed else 'Mark complete' }}">
-      {{ '☑' if item.completed else '☐' }}
-    </button>
     <button class="btn btn-ghost btn-sm"
-            style="color:var(--red);margin-left:4px;"
+            style="color:var(--red);"
             hx-delete="/account/{{ item.slug }}/actions/{{ item.id }}"
             hx-target="#task-row-{{ item.id }}"
             hx-swap="outerHTML swap:200ms"
