@@ -1,0 +1,38 @@
+{# Task table row — returned by HTMX toggle/delete on the /tasks page #}
+<tr id="task-row-{{ item.id }}"
+    class="task-row{% if item.completed %} task-done{% endif %}"
+    data-completed="{{ '1' if item.completed else '0' }}">
+  <td>
+    <a href="/account/{{ item.slug }}" style="color:var(--accent);font-weight:500;">
+      {{ item.slug.replace('-', ' ').title() }}
+    </a>
+  </td>
+  <td class="task-text-cell" style="max-width:380px;">{{ item.text }}</td>
+  <td>
+    {% if item.source_report %}
+    <span class="badge badge-{{ item.source_report.split('_')[1].split('.')[0] if '_' in item.source_report else 'lookup' }}">
+      {{ item.source_report.split('_')[1].split('.')[0] if '_' in item.source_report else item.source_report }}
+    </span>
+    {% else %}
+    <span style="color:var(--muted);font-size:12px;">manual</span>
+    {% endif %}
+  </td>
+  <td style="white-space:nowrap;color:var(--muted);font-size:13px;">
+    {{ item.created_at[:10] if item.created_at else '—' }}
+  </td>
+  <td style="text-align:right;white-space:nowrap;">
+    <button class="action-check btn-reset"
+            hx-patch="/account/{{ item.slug }}/actions/{{ item.id }}"
+            hx-target="#task-row-{{ item.id }}"
+            hx-swap="outerHTML"
+            title="{{ 'Mark incomplete' if item.completed else 'Mark complete' }}">
+      {{ '☑' if item.completed else '☐' }}
+    </button>
+    <button class="btn btn-ghost btn-sm"
+            style="color:var(--red);margin-left:4px;"
+            hx-delete="/account/{{ item.slug }}/actions/{{ item.id }}"
+            hx-target="#task-row-{{ item.id }}"
+            hx-swap="outerHTML swap:200ms"
+            hx-confirm="Delete this action item?">🗑</button>
+  </td>
+</tr>

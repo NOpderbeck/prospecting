@@ -128,6 +128,15 @@ def get_all_open_action_items(db_path: Path | str) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+def get_all_action_items_all_accounts(db_path: Path | str) -> list[dict]:
+    """Return ALL action items across all accounts (open + completed), newest first."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM action_items ORDER BY id DESC",
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 def get_all_action_items_for_dedup(db_path: Path | str, slug: str) -> list[dict]:
     """Return ALL action items for an account (including completed) for deduplication."""
     with _connect(db_path) as conn:

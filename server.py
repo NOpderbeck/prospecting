@@ -398,7 +398,11 @@ async def add_action(
 @app.patch("/account/{slug}/actions/{item_id}", response_class=HTMLResponse)
 async def toggle_action(request: Request, slug: str, item_id: int):
     item = db_module.toggle_action_item(DB_PATH, item_id)
-    return templates.TemplateResponse("_action_row.html", {
+    # Use _task_row.html (a <tr>) when called from the /tasks page;
+    # use _action_row.html (a <li>) when called from an account detail page.
+    current_url = request.headers.get("HX-Current-URL", "")
+    template = "_task_row.html" if "/tasks" in current_url else "_action_row.html"
+    return templates.TemplateResponse(template, {
         "request": request,
         "slug": slug,
         "item": item,
@@ -549,11 +553,13 @@ async def extract_actions_from_reports(request: Request, slug: str):
 
 @app.get("/tasks", response_class=HTMLResponse)
 async def tasks_page(request: Request):
-    items = db_module.get_all_open_action_items(DB_PATH)
+    items      = db_module.get_all_action_items_all_accounts(DB_PATH)
+    open_count = sum(1 for i in items if not i.get("completed"))
     return templates.TemplateResponse("tasks.html", {
-        "request": request,
-        "items": items,
-        "active": "tasks",
+        "request":    request,
+        "items":      items,
+        "open_count": open_count,
+        "active":     "tasks",
     })
 
 

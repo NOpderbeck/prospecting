@@ -476,6 +476,66 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 .report-table tr:last-child td { border-bottom: none; }
 .report-table tr:hover td { background: var(--surface2); }
 
+/* ── Tasks page ──────────────────────────────────────────── */
+
+/* Filter tabs */
+.task-filter-bar {
+  display: flex;
+  gap: 4px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.task-filter-btn {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.task-filter-btn:hover { color: var(--text); }
+
+.task-filter-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.task-filter-count {
+  display: inline-block;
+  background: var(--surface);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 5px;
+  margin-left: 4px;
+  color: var(--muted);
+}
+
+.task-filter-btn.active .task-filter-count {
+  background: var(--surface2);
+  color: var(--text);
+}
+
+/* CSS-driven row filtering — toggled via tbody[data-filter] */
+#tasks-tbody[data-filter="open"] .task-done            { display: none; }
+#tasks-tbody[data-filter="done"] .task-row:not(.task-done) { display: none; }
+
+/* Done-row styling */
+.task-done .task-text-cell {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.task-done td { opacity: 0.6; }
+
 /* ── Status indicators ───────────────────────────────────── */
 
 .status-bar {

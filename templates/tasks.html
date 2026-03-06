@@ -1,10 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Open Tasks — Prospecting Toolkit{% endblock %}
+{% block title %}Tasks — P0{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h2>Open Tasks</h2>
-  <p>{{ items|length }} open action item{{ 's' if items|length != 1 else '' }} across all accounts</p>
+<div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h2>Tasks</h2>
+    <p id="tasks-summary">{{ open_count }} open · {{ items|length - open_count }} done · {{ items|length }} total</p>
+  </div>
+
+  <!-- Filter tabs -->
+  <div class="task-filter-bar">
+    <button class="task-filter-btn active" data-filter="open">
+      Open <span class="task-filter-count" id="count-open">{{ open_count }}</span>
+    </button>
+    <button class="task-filter-btn" data-filter="done">
+      Done <span class="task-filter-count" id="count-done">{{ items|length - open_count }}</span>
+    </button>
+    <button class="task-filter-btn" data-filter="all">
+      All <span class="task-filter-count" id="count-all">{{ items|length }}</span>
+    </button>
+  </div>
 </div>
 
 {% if items %}
@@ -12,6 +27,7 @@
   <table class="report-table">
     <thead>
       <tr>
+        <th style="width:24px;"></th>
         <th>Account</th>
         <th>Action Item</th>
         <th>Source</th>
@@ -19,42 +35,10 @@
         <th></th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="tasks-tbody" data-filter="open">
       {% for item in items %}
-      <tr id="task-row-{{ item.id }}">
-        <td>
-          <a href="/account/{{ item.slug }}" style="color:var(--accent);font-weight:500;">
-            {{ item.slug.replace('-', ' ').title() }}
-          </a>
-        </td>
-        <td style="max-width:380px;">{{ item.text }}</td>
-        <td>
-          {% if item.source_report %}
-          <span class="badge badge-{{ item.source_report.split('_')[1].split('.')[0] if '_' in item.source_report else 'lookup' }}">
-            {{ item.source_report.split('_')[1].split('.')[0] if '_' in item.source_report else item.source_report }}
-          </span>
-          {% else %}
-          <span style="color:var(--muted);font-size:12px;">manual</span>
-          {% endif %}
-        </td>
-        <td style="white-space:nowrap;color:var(--muted);font-size:13px;">
-          {{ item.created_at[:10] if item.created_at else '—' }}
-        </td>
-        <td style="text-align:right;white-space:nowrap;">
-          <button class="btn btn-ghost btn-sm"
-                  style="color:var(--green);"
-                  hx-patch="/account/{{ item.slug }}/actions/{{ item.id }}"
-                  hx-target="#task-row-{{ item.id }}"
-                  hx-swap="outerHTML"
-                  title="Mark complete">☑ Done</button>
-          <button class="btn btn-ghost btn-sm"
-                  style="color:var(--red);"
-                  hx-delete="/account/{{ item.slug }}/actions/{{ item.id }}"
-                  hx-target="#task-row-{{ item.id }}"
-                  hx-swap="outerHTML swap:200ms"
-                  hx-confirm="Delete this action item?">🗑</button>
-        </td>
-      </tr>
+      {% set slug = item.slug %}
+      {% include "_task_row.html" %}
       {% endfor %}
     </tbody>
   </table>
@@ -63,8 +47,44 @@
 {% else %}
 <div class="empty-state">
   <div class="empty-icon">✅</div>
-  <p>No open action items. Add some from an <a href="/accounts">account page</a>.</p>
+  <p>No tasks yet. Add action items from an <a href="/accounts">account page</a>.</p>
 </div>
 {% endif %}
+
+<script>
+(function () {
+  var tbody    = document.getElementById('tasks-tbody');
+  var filterBtns = document.querySelectorAll('.task-filter-btn');
+
+  // Switch filter
+  filterBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      filterBtns.forEach(function (b) { b.classList.remove('active'); });
+      this.classList.add('active');
+      tbody.dataset.filter = this.dataset.filter;
+    });
+  });
+
+  // Recount after any HTMX swap (toggle or delete)
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (!tbody) return;
+    var rows     = tbody.querySelectorAll('.task-row');
+    var doneRows = tbody.querySelectorAll('.task-done');
+    var open = rows.length - doneRows.length;
+    var done = doneRows.length;
+    var total = rows.length;
+
+    var cOpen  = document.getElementById('count-open');
+    var cDone  = document.getElementById('count-done');
+    var cAll   = document.getElementById('count-all');
+    var summary = document.getElementById('tasks-summary');
+
+    if (cOpen)  cOpen.textContent  = open;
+    if (cDone)  cDone.textContent  = done;
+    if (cAll)   cAll.textContent   = total;
+    if (summary) summary.textContent = open + ' open · ' + done + ' done · ' + total + ' total';
+  });
+})();
+</script>
 
 {% endblock %}
