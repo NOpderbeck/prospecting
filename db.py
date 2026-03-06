@@ -128,6 +128,16 @@ def get_all_open_action_items(db_path: Path | str) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+def get_all_action_items_for_dedup(db_path: Path | str, slug: str) -> list[dict]:
+    """Return ALL action items for an account (including completed) for deduplication."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM action_items WHERE slug = ? ORDER BY id",
+            (slug,),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 def add_action_item(
     db_path: Path | str,
     slug: str,

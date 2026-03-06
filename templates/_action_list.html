@@ -1,5 +1,10 @@
-{# Full action items list — re-rendered by add/delete operations #}
+{# Full action items list — re-rendered by add/delete/extract operations #}
 <div id="action-list-wrap">
+  {% if extract_msg %}
+  <div class="extract-status {% if extract_ok %}ok{% else %}neutral{% endif %}">
+    {{ extract_msg }}
+  </div>
+  {% endif %}
   {% if actions %}
   <ul class="action-list">
     {% for item in actions %}

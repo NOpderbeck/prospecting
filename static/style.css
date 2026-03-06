@@ -196,6 +196,7 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 .badge-research      { background: #1a3a2a; color: #4caf8a; }
 .badge-score         { background: #3a2a10; color: #e8964d; }
 .badge-meeting_prep  { background: #0e2e30; color: #4ecdc4; }
+.badge-extracted     { background: #1e2a1e; color: #7bc47b; }
 .badge-unknown       { background: var(--surface2); color: var(--muted); }
 
 /* ── Buttons ─────────────────────────────────────────────── */
@@ -733,6 +734,30 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 }
 .action-source { font-size: 11px; }
 .action-del { flex-shrink: 0; }
+
+/* Extract status banner (shown after 🤖 Extract runs) */
+.extract-status {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.extract-status.ok      { background: rgba(76,175,138,0.12); color: var(--green); }
+.extract-status.neutral { background: var(--surface2);       color: var(--muted); }
+
+/* Inline spinner for HTMX indicator */
+.spinner-sm {
+  display: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.htmx-request .spinner-sm,
+.htmx-request.spinner-sm { display: inline-block; }
+
 .action-empty {
   font-size: 13px;
   color: var(--muted);

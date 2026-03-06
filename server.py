@@ -411,6 +411,138 @@ async def delete_action(slug: str, item_id: int):
     return Response(content="", status_code=200)
 
 
+def _extract_action_items_via_claude(
+    report_texts: list[str],
+    existing_items: list[str],
+    api_key: str,
+) -> list[str]:
+    """
+    Call Claude to extract action items from reports, skipping anything
+    already captured (including completed tasks).  Returns a list of new
+    item strings, or [] on any failure.
+    """
+    import anthropic, json as _json
+
+    existing_block = (
+        "\n".join(f"  - {t}" for t in existing_items)
+        if existing_items
+        else "  (none yet)"
+    )
+    combined_reports = "\n\n---\n\n".join(report_texts)
+
+    prompt = f"""You are reviewing internal sales prospecting reports to extract action items and follow-up tasks.
+
+ALREADY CAPTURED TASKS — do NOT recreate these, even if phrased differently or previously completed:
+{existing_block}
+
+REPORTS TO ANALYSE:
+{combined_reports}
+
+Instructions:
+- Extract every specific, actionable follow-up mentioned in the reports
+- Skip anything already covered by the list above (be strict — semantic duplicates count)
+- Be concise: max 12 words per item; start with a verb
+- Skip vague catch-alls like "follow up" with no further detail
+- Return ONLY a valid JSON array of strings, e.g. ["Schedule technical deep-dive", "Send pricing to CFO"]
+- If there are no new items, return exactly: []"""
+
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    try:
+        raw = msg.content[0].text.strip()
+        # Strip markdown code fences if Claude wraps the JSON
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        items = _json.loads(raw.strip())
+        return [s.strip() for s in items if isinstance(s, str) and s.strip()]
+    except Exception as exc:
+        print(f"  [extract] JSON parse error: {exc} — raw: {msg.content[0].text[:200]}")
+        return []
+
+
+@app.post("/account/{slug}/actions/extract", response_class=HTMLResponse)
+async def extract_actions_from_reports(request: Request, slug: str):
+    """
+    Scan the account's reports with Claude, extract action items, and add any
+    that are not already in the DB (active or completed).
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    extract_msg = ""
+    extract_ok  = False
+
+    account_dir  = REPORTS_DIR / slug
+    report_files = sorted(
+        account_dir.glob("*.md") if account_dir.exists() else [],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )[:6]  # Cap at 6 most-recent reports to stay within token budget
+
+    if not report_files:
+        extract_msg = "⚠ No reports found — run a Lookup first."
+    elif not api_key:
+        extract_msg = "⚠ ANTHROPIC_API_KEY not set."
+    else:
+        # Load reports; truncate each to keep the total prompt manageable
+        report_texts = []
+        for f in report_files:
+            try:
+                text = f.read_text(encoding="utf-8")[:4000]
+                report_texts.append(f"### {f.stem}\n{text}")
+            except Exception:
+                continue
+
+        # Fetch ALL existing items (active + completed) for deduplication
+        all_items     = db_module.get_all_action_items_for_dedup(DB_PATH, slug)
+        existing_texts = [a["text"] for a in all_items]
+
+        try:
+            new_items = await asyncio.to_thread(
+                _extract_action_items_via_claude,
+                report_texts,
+                existing_texts,
+                api_key,
+            )
+        except Exception as exc:
+            print(f"  [extract] Thread error for '{slug}': {exc}")
+            new_items  = []
+            extract_msg = f"⚠ Extraction error: {exc}"
+
+        if not extract_msg:
+            for text in new_items:
+                db_module.add_action_item(
+                    DB_PATH, slug, text, source_report="auto_extracted"
+                )
+            n = len(new_items)
+            r = len(report_files)
+            if n:
+                extract_msg = (
+                    f"✓ Added {n} new action item{'s' if n != 1 else ''} "
+                    f"from {r} report{'s' if r != 1 else ''}."
+                )
+                extract_ok = True
+            else:
+                extract_msg = (
+                    f"No new action items found across "
+                    f"{r} report{'s' if r != 1 else ''}."
+                )
+            print(f"  [extract] '{slug}': {extract_msg}")
+
+    actions = db_module.get_action_items(DB_PATH, slug)
+    return templates.TemplateResponse("_action_list.html", {
+        "request":    request,
+        "slug":       slug,
+        "actions":    actions,
+        "extract_msg": extract_msg,
+        "extract_ok":  extract_ok,
+    })
+
+
 # ---------------------------------------------------------------------------
 # Routes — Tasks (cross-account)
 # ---------------------------------------------------------------------------

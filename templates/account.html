@@ -74,6 +74,18 @@
     <h3 style="font-size:16px;font-weight:600;color:var(--text);">Action Items</h3>
     <p style="font-size:13px;color:var(--muted);margin-top:4px;">Track follow-ups for this account</p>
   </div>
+  {% if reports %}
+  <button class="btn btn-ghost btn-sm"
+          hx-post="/account/{{ slug }}/actions/extract"
+          hx-target="#action-list-wrap"
+          hx-swap="outerHTML"
+          hx-disabled-elt="this"
+          hx-indicator="#extract-spinner"
+          title="Scan all reports and extract action items using Claude">
+    <span id="extract-spinner" class="htmx-indicator spinner-sm"></span>
+    🤖 Extract from Reports
+  </button>
+  {% endif %}
 </div>
 
 {% include "_action_list.html" %}
