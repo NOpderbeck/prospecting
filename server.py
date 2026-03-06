@@ -294,8 +294,13 @@ async def refresh_meta(request: Request, slug: str):
     }
     display_name = slug.replace("-", " ").title()
 
-    # Run blocking SF call in a thread — keeps the async event loop free
-    result = await asyncio.to_thread(pull_salesforce, display_name, config, False)
+    # Run blocking SF call in a thread — wrap in try/except so any unhandled
+    # exception becomes a graceful error result rather than a 500.
+    try:
+        result = await asyncio.to_thread(pull_salesforce, display_name, config, False)
+    except Exception as exc:
+        print(f"  [refresh] Unexpected error: {exc}")
+        result = {"error": str(exc)}
 
     # Log the outcome to the server console so errors are always visible
     if result.get("error"):
@@ -311,7 +316,7 @@ async def refresh_meta(request: Request, slug: str):
     if not meta.get("slack_channel"):
         db_module.upsert_account_meta(DB_PATH, slug, slack_channel=f"#internal-{slug}")
 
-    meta = db_module.get_account_meta(DB_PATH, slug)
+    meta = db_module.get_account_meta(DB_PATH, slug) or {}
 
     # Brief status badge for the panel
     if result.get("error"):
