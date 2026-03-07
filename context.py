@@ -123,11 +123,45 @@ def _soql_escape(value: str) -> str:
     return value.replace("'", "\\'")
 
 
+def _best_account_match(accounts: list, company: str, domain: str = "") -> dict:
+    """Pick the account whose Name/Website best matches the search term.
+
+    Scoring (higher = better):
+      4 — domain matches the SF account's Website field
+      3 — exact name match (case-insensitive)
+      2 — name starts with the search term
+      1 — search term appears as a whole word inside the name
+      0 — substring match (the SOQL LIKE fallback)
+    """
+    import re
+    term = company.strip().lower()
+    dom  = domain.strip().lower()
+
+    def score(acct):
+        if dom:
+            website = (acct.get("Website") or "").lower()
+            # Strip protocol/www for comparison
+            website = re.sub(r'^https?://', '', website)
+            website = re.sub(r'^www\.', '', website)
+            if website.startswith(dom) or f".{dom}" in website:
+                return 4
+        name = (acct.get("Name") or "").strip().lower()
+        if name == term:
+            return 3
+        if name.startswith(term):
+            return 2
+        if re.search(r'\b' + re.escape(term) + r'\b', name):
+            return 1
+        return 0
+
+    return max(accounts, key=score)
+
+
 # ---------------------------------------------------------------------------
 # Salesforce Connector
 # ---------------------------------------------------------------------------
 
-def pull_salesforce(company: str, config: dict, verbose: bool) -> dict:
+def pull_salesforce(company: str, config: dict, verbose: bool, domain: str = "") -> dict:
     """
     Returns a dict with: account, opportunities, contacts, activities,
     events, formatted_text. On failure: {"error": ..., "formatted_text": ...}
@@ -162,17 +196,32 @@ def pull_salesforce(company: str, config: dict, verbose: bool) -> dict:
         }
 
     company_safe = _soql_escape(company)
+    _acct_fields = (
+        "SELECT Id, Name, Industry, Website, AnnualRevenue, "
+        "NumberOfEmployees, Description, OwnerId, Owner.Name FROM Account"
+    )
 
-    # Step 1: Find the Account
+    # Step 1: Find the Account — query by name, and by domain if available
     try:
         acct_result = sf.query(
-            f"SELECT Id, Name, Industry, Website, AnnualRevenue, "
-            f"NumberOfEmployees, Description, OwnerId, Owner.Name "
-            f"FROM Account WHERE Name LIKE '%{company_safe}%' LIMIT 5"
+            f"{_acct_fields} WHERE Name LIKE '%{company_safe}%' LIMIT 5"
         )
         accounts = acct_result.get("records", [])
     except Exception as e:
         return {"error": "query_failed", "formatted_text": f"_Salesforce account query failed: {e}_"}
+
+    # If we have a domain, also query by Website and merge (deduped by Id)
+    if domain:
+        domain_safe = _soql_escape(domain)
+        try:
+            dom_result = sf.query(
+                f"{_acct_fields} WHERE Website LIKE '%{domain_safe}%' LIMIT 5"
+            )
+            dom_accounts = dom_result.get("records", [])
+            existing_ids = {a["Id"] for a in accounts}
+            accounts += [a for a in dom_accounts if a["Id"] not in existing_ids]
+        except Exception:
+            pass  # domain query is best-effort
 
     if not accounts:
         return {
@@ -184,8 +233,8 @@ def pull_salesforce(company: str, config: dict, verbose: bool) -> dict:
             "formatted_text": f"_No Salesforce account found matching '{company}'._",
         }
 
-    account = accounts[0]
-    extra_note = f" ({len(accounts)} accounts matched; using first)" if len(accounts) > 1 else ""
+    account = _best_account_match(accounts, company, domain)
+    extra_note = f" ({len(accounts)} accounts matched; using best)" if len(accounts) > 1 else ""
     account_ids_str = ", ".join(f"'{a['Id']}'" for a in accounts)
 
     if verbose:
@@ -255,7 +304,7 @@ def pull_salesforce(company: str, config: dict, verbose: bool) -> dict:
             import db as db_module
             sf_base = f"https://{sf.sf_instance}"
             open_opps = [o for o in opps if not o.get("IsClosed")]
-            best_opp = open_opps[0] if open_opps else None
+            best_opp = open_opps[0] if open_opps else (opps[0] if opps else None)
             db_module.upsert_account_meta(
                 config["db_path"],
                 slugify(company),

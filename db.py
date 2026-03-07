@@ -21,6 +21,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
     slug               TEXT PRIMARY KEY,
     display_name       TEXT,
+    domain             TEXT,
     sf_account_url     TEXT,
     sf_opportunity_url TEXT,
     slack_channel      TEXT,
@@ -28,6 +29,12 @@ CREATE TABLE IF NOT EXISTS accounts (
     created_at         TEXT DEFAULT (datetime('now')),
     updated_at         TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS _migrations (
+    name TEXT PRIMARY KEY
+);
+
+
 
 CREATE TABLE IF NOT EXISTS action_items (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,6 +71,10 @@ def init_db(db_path: Path | str) -> None:
     """Create tables if they don't exist. Call once at server startup."""
     with _connect(db_path) as conn:
         conn.executescript(_SCHEMA)
+        # Migrations for existing installs
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(accounts)")}
+        if "domain" not in cols:
+            conn.execute("ALTER TABLE accounts ADD COLUMN domain TEXT")
 
 
 # ── Account metadata ─────────────────────────────────────────────────────
@@ -84,7 +95,7 @@ def upsert_account_meta(db_path: Path | str, slug: str, **fields) -> None:
     Always refreshes updated_at.
     """
     allowed = {
-        "display_name", "sf_account_url", "sf_opportunity_url",
+        "display_name", "domain", "sf_account_url", "sf_opportunity_url",
         "slack_channel", "notes",
     }
     safe = {k: v for k, v in fields.items() if k in allowed}

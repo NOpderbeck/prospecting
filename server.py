@@ -135,6 +135,16 @@ def get_all_accounts() -> list[dict]:
     return accounts
 
 
+def _normalize_domain(raw: str) -> str | None:
+    """Strip protocol, www, path, and whitespace from a domain entry."""
+    import re
+    d = raw.strip().lower()
+    d = re.sub(r'^https?://', '', d)
+    d = re.sub(r'^www\.', '', d)
+    d = d.split('/')[0]  # drop any path
+    return d or None
+
+
 def get_account_reports(slug: str) -> list[dict]:
     """Return all report metadata for a given account slug."""
     company_dir = REPORTS_DIR / slug
@@ -293,11 +303,11 @@ async def refresh_meta(request: Request, slug: str):
         "db_path":           str(DB_PATH),
     }
     display_name = slug.replace("-", " ").title()
-
+    domain = (db_module.get_account_meta(DB_PATH, slug) or {}).get("domain") or ""
     # Run blocking SF call in a thread — wrap in try/except so any unhandled
     # exception becomes a graceful error result rather than a 500.
     try:
-        result = await asyncio.to_thread(pull_salesforce, display_name, config, False)
+        result = await asyncio.to_thread(pull_salesforce, display_name, config, False, domain)
     except Exception as exc:
         print(f"  [refresh] Unexpected error: {exc}")
         result = {"error": str(exc)}
@@ -362,6 +372,7 @@ async def save_account_meta(request: Request, slug: str):
     form = await request.form()
     db_module.upsert_account_meta(
         DB_PATH, slug,
+        domain             = _normalize_domain(form.get("domain", "")),
         sf_account_url     = form.get("sf_account_url", "").strip() or None,
         sf_opportunity_url = form.get("sf_opportunity_url", "").strip() or None,
         slack_channel      = form.get("slack_channel", "").strip() or None,

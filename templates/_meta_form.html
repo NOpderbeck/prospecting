@@ -9,6 +9,13 @@
         hx-swap="outerHTML">
 
     <div class="meta-form-grid">
+      <label class="meta-label">Domain</label>
+      <input class="form-control form-control-sm"
+             name="domain"
+             type="text"
+             placeholder="acme.com"
+             value="{{ meta.get('domain') or '' }}"/>
+
       <label class="meta-label">SF Account URL</label>
       <input class="form-control form-control-sm"
              name="sf_account_url"

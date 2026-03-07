@@ -20,6 +20,10 @@
   <div class="meta-refresh-status {% if refresh_msg.startswith('✓') %}ok{% else %}warn{% endif %}">{{ refresh_msg }}</div>
   {% endif %}
 
+  {% if meta.get('domain') %}
+  <div class="meta-notes" style="font-size:0.8rem;color:var(--text-muted,#888);margin-bottom:4px;">🌐 {{ meta.domain }}</div>
+  {% endif %}
+
   <div class="meta-links">
     {% if meta.get('sf_account_url') %}
     <a class="meta-link" href="{{ meta.sf_account_url }}" target="_blank" rel="noopener">
