@@ -86,12 +86,26 @@ DIMENSIONS = [
             "0 = No relevant hiring signals found."
         ),
     },
+    {
+        "key": "recent_funding",
+        "label": "Recent funding event",
+        "max": 2,
+        "rubric": (
+            "2 = Announced a funding round (Series A or later) or significant investment within "
+            "the past 18 months, particularly if AI, search, or data infrastructure is cited as "
+            "a use of proceeds or strategic focus. "
+            "1 = Funding found but older than 18 months (up to ~3 years), or round size / "
+            "AI relevance is unclear. "
+            "0 = No recent funding found, company is bootstrapped, or is a large public company "
+            "with no notable recent AI-focused investment announcement."
+        ),
+    },
 ]
 
 SCORE_TIERS = [
-    (8, 10, "HIGH",   "🟢", "Strong fit — prioritize outreach"),
-    (5,  7, "MEDIUM", "🟡", "Moderate fit — qualify further"),
-    (0,  4, "LOW",    "🔴", "Weak fit — deprioritize"),
+    (10, 12, "HIGH",   "🟢", "Strong fit — prioritize outreach"),
+    ( 6,  9, "MEDIUM", "🟡", "Moderate fit — qualify further"),
+    ( 0,  5, "LOW",    "🔴", "Weak fit — deprioritize"),
 ]
 
 

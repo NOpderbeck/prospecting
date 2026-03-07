@@ -80,6 +80,14 @@ SCRIPT_META = {
         "icon": "📅",
         "no_company": True,  # does not take a company positional arg
     },
+    "bulk_score": {
+        "label": "Bulk Fit Score",
+        "script": "bulk_score.py",
+        "description": "Score all prospects from a Google Sheet and write results back.",
+        "color": "purple",
+        "icon": "📋",
+        "no_company": True,
+    },
 }
 
 REPORT_TYPE_ORDER = ["lookup", "context", "research", "score"]
@@ -632,6 +640,8 @@ async def run_stream(
     verbose: str = "",
     days: str = "1",
     email: str = "",
+    sheet_url: str = "",
+    limit: str = "",
 ):
     """SSE endpoint — streams subprocess stdout/stderr line by line."""
 
@@ -654,6 +664,14 @@ async def run_stream(
         cmd += ["--days", str(days_int)]
         if email == "true":
             cmd.append("--email")
+    elif script == "bulk_score":
+        if not sheet_url:
+            async def error_gen():
+                yield f'data: {json.dumps({"line": "ERROR: Google Sheet URL is required", "done": True, "exit_code": 1})}\n\n'
+            return StreamingResponse(error_gen(), media_type="text/event-stream")
+        cmd += ["--sheet-url", sheet_url]
+        if limit and limit != "0":
+            cmd += ["--limit", limit]
     else:
         if not company:
             async def error_gen():
@@ -695,9 +713,11 @@ async def run_stream(
             if exit_code == 0:
                 if script == "meeting_prep":
                     check_dir = REPORTS_DIR / "meeting_prep"
+                elif script == "bulk_score":
+                    check_dir = None  # multiple reports — no single link
                 else:
                     check_dir = REPORTS_DIR / slugify(company)
-                if check_dir.exists():
+                if check_dir and check_dir.exists():
                     candidates = sorted(
                         check_dir.glob("*.md"),
                         key=lambda f: f.stat().st_mtime,
@@ -724,7 +744,7 @@ async def run_stream(
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Prospecting Toolkit web server")
-    parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", 8000)), help="Port to listen on (default: 8000, or $PORT)")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
     parser.add_argument(
         "--no-reload",

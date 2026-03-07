@@ -77,7 +77,24 @@
       <!-- Score extras -->
       <div id="opt-url" style="display:none;" class="form-group">
         <label for="url-input">Company URL <span style="color:var(--muted);font-weight:400;">(optional, score only)</span></label>
-        <input class="form-control" id="url-input" type="url" placeholder="https://company.com"/>
+        <input class="form-control" id="url-input" type="text" placeholder="company.com"/>
+      </div>
+      <!-- Bulk Score extras -->
+      <div id="opt-bulk-score" style="display:none;">
+        <div class="form-group">
+          <label for="sheet-url-input">Google Sheet URL</label>
+          <input class="form-control" id="sheet-url-input" type="text" placeholder="https://docs.google.com/spreadsheets/d/..."/>
+        </div>
+        <div class="form-group" style="margin-top:10px;">
+          <label for="limit-select">Limit</label>
+          <select class="form-control" id="limit-select" style="max-width:140px;">
+            <option value="5">5 accounts</option>
+            <option value="10">10 accounts</option>
+            <option value="25" selected>25 accounts</option>
+            <option value="100">100 accounts</option>
+            <option value="0">All</option>
+          </select>
+        </div>
       </div>
       <!-- Verbose -->
       <div class="checkbox-group">
@@ -194,15 +211,18 @@ function selectScript(key) {
   document.querySelector(`[data-script="${key}"]`).classList.add('selected');
 
   const isMeetingPrep = key === 'meeting_prep';
+  const isBulkScore   = key === 'bulk_score';
+  const noCompany     = isMeetingPrep || isBulkScore;
 
-  // Toggle company row vs meeting-prep row
-  document.getElementById('company-row').style.display      = isMeetingPrep ? 'none'  : 'grid';
-  document.getElementById('meeting-prep-row').style.display = isMeetingPrep ? 'grid'  : 'none';
+  // Toggle company row vs meeting-prep row vs bulk-score row
+  document.getElementById('company-row').style.display      = noCompany      ? 'none'  : 'grid';
+  document.getElementById('meeting-prep-row').style.display = isMeetingPrep  ? 'grid'  : 'none';
 
   // Show/hide account-script extras
-  document.getElementById('opt-news').style.display    = key === 'lookup' ? 'flex'  : 'none';
-  document.getElementById('opt-url').style.display     = key === 'score'  ? 'block' : 'none';
-  document.getElementById('domain-group').style.display = key === 'lookup' ? 'block' : 'none';
+  document.getElementById('opt-news').style.display       = key === 'lookup'     ? 'flex'  : 'none';
+  document.getElementById('opt-url').style.display        = key === 'score'      ? 'block' : 'none';
+  document.getElementById('opt-bulk-score').style.display = key === 'bulk_score' ? 'block' : 'none';
+  document.getElementById('domain-group').style.display   = key === 'lookup'     ? 'block' : 'none';
 }
 
 // Init on load
@@ -246,11 +266,24 @@ function startRun(e) {
       verbose: verbose ? 'true' : '',
     });
     termLabel = `Meeting Prep — ${daysName}`;
+  } else if (script === 'bulk_score') {
+    const sheetUrl = document.getElementById('sheet-url-input').value.trim();
+    if (!sheetUrl) { alert('Please enter a Google Sheet URL.'); return; }
+    const limit = document.getElementById('limit-select').value;
+    const limitLabel = limit === '0' ? 'All' : limit;
+    params = new URLSearchParams({
+      script,
+      sheet_url: sheetUrl,
+      limit,
+      verbose: verbose ? 'true' : '',
+    });
+    termLabel = `Bulk Fit Score — ${limitLabel} accounts`;
   } else {
     const company = document.getElementById('company-input').value.trim();
     const domain  = document.getElementById('domain-input').value.trim();
     const news    = document.getElementById('news-check').checked;
-    const url     = document.getElementById('url-input').value.trim();
+    let url = document.getElementById('url-input').value.trim();
+    if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
 
     if (!company) { alert('Please enter a company name.'); return; }
 
