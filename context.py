@@ -201,27 +201,46 @@ def pull_salesforce(company: str, config: dict, verbose: bool, domain: str = "")
         "NumberOfEmployees, Description, OwnerId, Owner.Name FROM Account"
     )
 
-    # Step 1: Find the Account — query by name, and by domain if available
-    try:
-        acct_result = sf.query(
-            f"{_acct_fields} WHERE Name LIKE '%{company_safe}%' LIMIT 5"
-        )
-        accounts = acct_result.get("records", [])
-    except Exception as e:
-        return {"error": "query_failed", "formatted_text": f"_Salesforce account query failed: {e}_"}
+    # Step 1: Find the Account.
+    # When a domain is provided, query by Website first — it's a more reliable
+    # identifier than a fuzzy name match.  Fall back to name if domain yields nothing.
+    accounts: list[dict] = []
 
-    # If we have a domain, also query by Website and merge (deduped by Id)
     if domain:
         domain_safe = _soql_escape(domain)
         try:
             dom_result = sf.query(
                 f"{_acct_fields} WHERE Website LIKE '%{domain_safe}%' LIMIT 5"
             )
-            dom_accounts = dom_result.get("records", [])
-            existing_ids = {a["Id"] for a in accounts}
-            accounts += [a for a in dom_accounts if a["Id"] not in existing_ids]
+            accounts = dom_result.get("records", [])
+            if verbose and accounts:
+                print(f"    [verbose] SF domain search found {len(accounts)} account(s)")
         except Exception:
-            pass  # domain query is best-effort
+            pass  # domain query is best-effort; fall through to name search
+
+    if not accounts:
+        # No domain, or domain search returned nothing — search by name
+        try:
+            acct_result = sf.query(
+                f"{_acct_fields} WHERE Name LIKE '%{company_safe}%' LIMIT 5"
+            )
+            accounts = acct_result.get("records", [])
+        except Exception as e:
+            return {"error": "query_failed", "formatted_text": f"_Salesforce account query failed: {e}_"}
+
+        # If we got name results AND have a domain, also merge any domain matches
+        # (catches cases where the name search found a different account than the
+        # domain search would, so _best_account_match can pick the better one).
+        if accounts and domain:
+            domain_safe = _soql_escape(domain)
+            try:
+                dom_result = sf.query(
+                    f"{_acct_fields} WHERE Website LIKE '%{domain_safe}%' LIMIT 5"
+                )
+                existing_ids = {a["Id"] for a in accounts}
+                accounts += [a for a in dom_result.get("records", []) if a["Id"] not in existing_ids]
+            except Exception:
+                pass
 
     if not accounts:
         return {
@@ -314,6 +333,8 @@ def pull_salesforce(company: str, config: dict, verbose: bool, domain: str = "")
         except Exception:
             pass  # never fail the script over a DB write
 
+    sf_account_url = f"https://{sf.sf_instance}/{account['Id']}"
+
     return {
         "account": account,
         "opportunities": opps,
@@ -321,6 +342,7 @@ def pull_salesforce(company: str, config: dict, verbose: bool, domain: str = "")
         "activities": activities,
         "events": events,
         "formatted_text": formatted_text,
+        "sf_account_url": sf_account_url,
     }
 
 

@@ -264,8 +264,9 @@ def main():
         print(f"\n[{row_num}/{total_rows}] Scoring: {company}", flush=True)
         print("-" * 40, flush=True)
 
-        sf_owner    = ""
-        report_path = ""
+        sf_owner       = ""
+        sf_account_url = ""
+        report_path    = ""
 
         try:
             # 1. Run You.com searches
@@ -291,11 +292,12 @@ def main():
                 args.output_dir,
             )
 
-            # 4. Look up Salesforce owner
+            # 4. Look up Salesforce account — search by domain first, fall back to name
             try:
-                sf_result = pull_salesforce(company, sf_config, verbose=False, domain=domain)
-                account   = sf_result.get("account") or {}
-                sf_owner  = (account.get("Owner") or {}).get("Name", "")
+                sf_result      = pull_salesforce(company, sf_config, verbose=False, domain=domain)
+                account        = sf_result.get("account") or {}
+                sf_owner       = (account.get("Owner") or {}).get("Name", "")
+                sf_account_url = sf_result.get("sf_account_url", "")
             except Exception as sf_err:
                 print(f"  WARNING: SF lookup failed: {sf_err}", flush=True)
 
@@ -304,7 +306,8 @@ def main():
             score_str = f"{tier_icon} {total_score}/12 ({tier_label})"
             rationale = _extract_rationale(report_body, total_score, tier_label)
 
-            # 6. Write results back to sheet columns C, D, E
+            # 6. Write results back to sheet
+            #    Col C: SF Owner  |  Col D: Fit Score  |  Col E: Rationale
             sheets.values().update(
                 spreadsheetId=sheet_id,
                 range=f"Sheet1!C{i}:E{i}",
@@ -312,8 +315,21 @@ def main():
                 body={"values": [[sf_owner, score_str, rationale]]},
             ).execute()
 
+            #    Col A: Account Name — link to the SF account record when found
+            if sf_account_url:
+                escaped_url  = sf_account_url.replace('"', '%22')
+                escaped_name = company.replace('"', '""')
+                sheets.values().update(
+                    spreadsheetId=sheet_id,
+                    range=f"Sheet1!A{i}",
+                    valueInputOption="USER_ENTERED",
+                    body={"values": [[f'=HYPERLINK("{escaped_url}","{escaped_name}")']]},
+                ).execute()
+
             print(f"  ✓ Score: {score_str}", flush=True)
             print(f"  ✓ SF Owner: {sf_owner or '(not found)'}", flush=True)
+            if sf_account_url:
+                print(f"  ✓ SF Account: {sf_account_url}", flush=True)
             if report_path:
                 print(f"  ✓ Report saved: {report_path}", flush=True)
 
