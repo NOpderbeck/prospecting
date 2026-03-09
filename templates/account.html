@@ -15,12 +15,26 @@
     <h2>{{ display }}</h2>
     <p>{{ reports|length }} report{{ 's' if reports|length != 1 else '' }} on file</p>
   </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    {% if reports %}
+    <button class="btn btn-ghost btn-sm"
+            hx-post="/account/{{ slug }}/slack-status"
+            hx-target="#slack-status-panel"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this"
+            hx-indicator="#slack-status-spinner"
+            title="Generate a Slack status update from the most recent lookup report">
+      <span id="slack-status-spinner" class="htmx-indicator spinner-sm"></span>
+      💬 Slack Status
+    </button>
+    {% endif %}
     <a class="btn btn-ghost btn-sm" href="/run?company={{ display }}&script=lookup">▶ Run Lookup</a>
     <a class="btn btn-ghost btn-sm" href="/run?company={{ display }}&script=research">▶ Run Research</a>
     <a class="btn btn-ghost btn-sm" href="/run?company={{ display }}&script=score">▶ Run Score</a>
   </div>
 </div>
+
+<div id="slack-status-panel"></div>
 
 <!-- ── Section 0: Account Metadata ───────────────────────── -->
 {% include "_meta_panel.html" %}

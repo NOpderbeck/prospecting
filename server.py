@@ -567,6 +567,138 @@ async def extract_actions_from_reports(request: Request, slug: str):
 
 
 # ---------------------------------------------------------------------------
+# Routes — Slack Status
+# ---------------------------------------------------------------------------
+
+def _generate_slack_status_via_claude(
+    report_text: str,
+    company: str,
+    api_key: str,
+) -> str:
+    """Call Claude to synthesise a concise Slack status from the most recent lookup report."""
+    import anthropic
+    from datetime import date as _date
+
+    today = _date.today().strftime("%-m/%-d")
+
+    prompt = f"""You are a sales rep writing a brief internal Slack status update for the account "{company}".
+
+Using the report below, generate a concise weekly status. Focus on activity from the past 7 days. Be direct and factual — no fluff.
+
+Output EXACTLY this format (plain text, no markdown formatting characters like # or **):
+
+Status update: {today}
+
+1. Commercial Update
+* [bullet]
+* [bullet]
+
+2. Open Items / Risk
+* [bullet]
+* [bullet]
+
+3. Goals for the Week
+* [bullet]
+* [bullet]
+
+Guidelines:
+- Commercial Update: deal stage, pricing, contract progress, recent meetings or proposals
+- Open Items / Risk: blockers, competitive threats, unanswered questions, pending decisions
+- Goals for the Week: specific next actions and owner if known
+- 3–5 bullets per section; each bullet is 1–2 lines max
+- Only include items with real substance — skip generic filler
+- Do NOT add any preamble or explanation outside the format above
+
+REPORT:
+{report_text}"""
+
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text.strip()
+
+
+@app.post("/account/{slug}/slack-status", response_class=HTMLResponse)
+async def generate_slack_status(request: Request, slug: str):
+    """Generate a Slack-ready status update from the most recent lookup report."""
+    import html as _html
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    account_dir = REPORTS_DIR / slug
+
+    # Prefer most-recent lookup; fall back to any report
+    report_file = None
+    if account_dir.exists():
+        lookup_files = sorted(account_dir.glob("*_lookup.md"), reverse=True)
+        report_file = lookup_files[0] if lookup_files else None
+        if not report_file:
+            all_files = sorted(account_dir.glob("*.md"), reverse=True)
+            report_file = all_files[0] if all_files else None
+
+    def _err(msg: str) -> HTMLResponse:
+        return HTMLResponse(
+            f'<div class="card" style="padding:16px;margin-bottom:24px;'
+            f'border-left:3px solid var(--red);">'
+            f'<p style="color:var(--red);">{msg}</p></div>'
+        )
+
+    if not report_file:
+        return _err("⚠ No reports found — run a Lookup first.")
+    if not api_key:
+        return _err("⚠ ANTHROPIC_API_KEY not set.")
+
+    display_name = slug.replace("-", " ").title()
+    try:
+        report_text = report_file.read_text(encoding="utf-8")[:8000]
+        status_text = await asyncio.to_thread(
+            _generate_slack_status_via_claude,
+            report_text,
+            display_name,
+            api_key,
+        )
+    except Exception as exc:
+        print(f"  [slack-status] Error for '{slug}': {exc}")
+        return _err(f"⚠ Error generating status: {exc}")
+
+    status_escaped = _html.escape(status_text)
+    source_label   = report_file.name
+
+    return HTMLResponse(f"""
+<div class="card" id="slack-status-card"
+     style="padding:20px;margin-bottom:24px;border-left:4px solid #4A90D9;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;">
+    <div>
+      <span style="font-weight:600;font-size:14px;">💬 Slack Status</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px;">from {source_label}</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost btn-sm" id="slack-copy-btn" onclick="copySlackStatus()">Copy</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--muted);"
+              onclick="document.getElementById('slack-status-card').remove()">✕</button>
+    </div>
+  </div>
+  <pre id="slack-status-text"
+       style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.7;margin:0;color:var(--text);">{status_escaped}</pre>
+</div>
+<script>
+(function() {{
+  var _statusText = {json.dumps(status_text)};
+  window.copySlackStatus = function() {{
+    navigator.clipboard.writeText(_statusText).then(function() {{
+      var btn = document.getElementById('slack-copy-btn');
+      btn.textContent = '✓ Copied!';
+      setTimeout(function() {{ btn.textContent = 'Copy'; }}, 2000);
+    }});
+  }};
+}})();
+</script>
+""")
+
+
+# ---------------------------------------------------------------------------
 # Routes — Tasks (cross-account)
 # ---------------------------------------------------------------------------
 
