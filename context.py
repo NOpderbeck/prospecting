@@ -123,28 +123,92 @@ def _soql_escape(value: str) -> str:
     return value.replace("'", "\\'")
 
 
+def _extract_domain(url: str) -> str:
+    """
+    Normalize a URL or raw domain string to a bare hostname with no protocol,
+    www prefix, path, query string, fragment, or port.
+
+    Examples:
+        "https://www.acme.com/products?ref=1"  → "acme.com"
+        "acme.com"                              → "acme.com"
+        "http://mail.acme.co.uk:8080/path"      → "mail.acme.co.uk"
+    """
+    if not url:
+        return ""
+    s = url.strip().lower()
+    s = re.sub(r'^https?://', '', s)  # strip protocol
+    s = re.sub(r'^www\.', '', s)      # strip leading www.
+    s = s.split('/')[0]               # strip path
+    s = s.split('?')[0]               # strip query string
+    s = s.split('#')[0]               # strip fragment
+    s = s.split(':')[0]               # strip port
+    return s.strip()
+
+
+_CORP_SUFFIXES = re.compile(
+    r'\b(inc|llc|ltd|corp|co|company|group|holdings|international|global|'
+    r'technologies|technology|solutions|services|systems|software|labs|'
+    r'health|financial|capital|partners|consulting|enterprises|ventures|'
+    r'the|and|of|for)\b',
+    re.IGNORECASE,
+)
+
+
+def _name_tokens(name: str) -> set:
+    """Return meaningful tokens (≥3 chars) from a company name, stripping
+    common corporate suffixes so 'Acme Inc' and 'Acme Corp' still match."""
+    n = _CORP_SUFFIXES.sub(' ', name.lower())
+    n = re.sub(r'[^\w\s]', ' ', n)
+    return {w for w in n.split() if len(w) >= 3}
+
+
+def _names_are_compatible(searched: str, matched: str) -> bool:
+    """
+    Return True if the searched company name and the SF account name share at
+    least one meaningful token.  Used to guard against domain-based false
+    positives where a domain matches but the account name is unrelated.
+
+    When either side produces no tokens (very short names / all suffixes),
+    we return True to avoid rejecting valid short-name accounts.
+    """
+    t_s = _name_tokens(searched)
+    t_m = _name_tokens(matched)
+    if not t_s or not t_m:
+        return True   # can't determine — give benefit of the doubt
+    return bool(t_s & t_m)
+
+
 def _best_account_match(accounts: list, company: str, domain: str = "") -> dict:
     """Pick the account whose Name/Website best matches the search term.
 
     Scoring (higher = better):
-      4 — domain matches the SF account's Website field
+      6 — domain exact/subdomain match AND name is compatible with search term
+      4 — domain exact/subdomain match only (name diverges — logged as warning)
       3 — exact name match (case-insensitive)
       2 — name starts with the search term
       1 — search term appears as a whole word inside the name
       0 — substring match (the SOQL LIKE fallback)
+
+    Domain comparison uses _extract_domain() on both sides so protocols,
+    www prefixes, paths, and ports are all stripped before comparison.
+    A subdomain of the search domain (or vice-versa) also counts as a match.
     """
-    import re
-    term = company.strip().lower()
-    dom  = domain.strip().lower()
+    term       = company.strip().lower()
+    search_dom = _extract_domain(domain)
 
     def score(acct):
-        if dom:
-            website = (acct.get("Website") or "").lower()
-            # Strip protocol/www for comparison
-            website = re.sub(r'^https?://', '', website)
-            website = re.sub(r'^www\.', '', website)
-            if website.startswith(dom) or f".{dom}" in website:
-                return 4
+        acct_dom = _extract_domain(acct.get("Website") or "")
+
+        if search_dom and acct_dom:
+            dom_match = (
+                acct_dom == search_dom
+                or acct_dom.endswith('.' + search_dom)
+                or search_dom.endswith('.' + acct_dom)
+            )
+            if dom_match:
+                compatible = _names_are_compatible(company, acct.get("Name") or "")
+                return 6 if compatible else 4
+
         name = (acct.get("Name") or "").strip().lower()
         if name == term:
             return 3
@@ -256,8 +320,23 @@ def pull_salesforce(company: str, config: dict, verbose: bool, domain: str = "")
     extra_note = f" ({len(accounts)} accounts matched; using best)" if len(accounts) > 1 else ""
     account_ids_str = ", ".join(f"'{a['Id']}'" for a in accounts)
 
+    matched_name = account.get("Name") or ""
+    if not _names_are_compatible(company, matched_name):
+        print(
+            f"  WARN  SF: matched account '{matched_name}' may not be the intended "
+            f"match for '{company}' — name tokens don't overlap. Verify manually."
+        )
+
     if verbose:
-        print(f"    [verbose] SF Account: {account.get('Name')}{extra_note}")
+        acct_dom = _extract_domain(account.get("Website") or "")
+        search_dom = _extract_domain(domain)
+        dom_note = f" | website domain: '{acct_dom}'" if acct_dom else ""
+        srch_note = f" | searched domain: '{search_dom}'" if search_dom else ""
+        compat = _names_are_compatible(company, matched_name)
+        print(
+            f"    [verbose] SF Account: '{matched_name}'{extra_note}"
+            f"{dom_note}{srch_note} | name compatible: {compat}"
+        )
 
     # Step 2: Opportunities
     opps = []

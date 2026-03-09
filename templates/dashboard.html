@@ -7,6 +7,23 @@
   <p>All accounts with reports on file &mdash; {{ accounts|length }} account{{ 's' if accounts|length != 1 else '' }}</p>
 </div>
 
+<!-- Script quick-launch row -->
+<div style="margin-bottom:40px;">
+  <div class="page-header">
+    <h2>Quick Launch</h2>
+    <p>Run any script on a new account</p>
+  </div>
+  <div class="script-cards">
+    {% for key, meta in script_meta.items() %}
+    <a class="btn btn-ghost" href="/run?script={{ key }}" style="flex-direction:column;align-items:flex-start;padding:16px;height:auto;">
+      <span style="font-size:22px;margin-bottom:6px;">{{ meta.icon }}</span>
+      <span style="font-size:14px;font-weight:600;">{{ meta.label }}</span>
+      <span style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4;">{{ meta.description }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
 {% if accounts %}
 <div class="card-grid">
   {% for acct in accounts %}
@@ -51,21 +68,4 @@
   </p>
 </div>
 {% endif %}
-
-<!-- Script quick-launch row -->
-<div style="margin-top:40px;">
-  <div class="page-header">
-    <h2>Quick Launch</h2>
-    <p>Run any script on a new account</p>
-  </div>
-  <div class="script-cards">
-    {% for key, meta in script_meta.items() %}
-    <a class="btn btn-ghost" href="/run?script={{ key }}" style="flex-direction:column;align-items:flex-start;padding:16px;height:auto;">
-      <span style="font-size:22px;margin-bottom:6px;">{{ meta.icon }}</span>
-      <span style="font-size:14px;font-weight:600;">{{ meta.label }}</span>
-      <span style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4;">{{ meta.description }}</span>
-    </a>
-    {% endfor %}
-  </div>
-</div>
 {% endblock %}
