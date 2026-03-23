@@ -538,6 +538,13 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 
 .answer-error { color: var(--red); font-size: 14px; padding: 16px 0; }
 
+/* Save context bar */
+.save-status   { font-size: 13px; }
+.save-ok       { color: var(--green); }
+.save-ok a     { color: var(--green); text-decoration: underline; }
+.save-ok a:hover { color: var(--accent); }
+.save-error    { color: var(--red); }
+
 /* Question input row at the bottom */
 .ask-input-row {
   display: flex;

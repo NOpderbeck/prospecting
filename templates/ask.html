@@ -49,6 +49,19 @@
     </div>
   </div>
 
+  <!-- ── Save bar (shown after first turn) ── -->
+  <div id="save-bar" style="display:none;padding:10px 20px;border-top:1px solid var(--border);background:var(--surface2);display:none;align-items:center;gap:12px;">
+    <button
+      class="btn btn-ghost btn-sm"
+      hx-post="/ask/save"
+      hx-include="#conv-id"
+      hx-target="#save-result"
+      hx-swap="innerHTML"
+      type="button"
+    >💾 Save Context</button>
+    <span id="save-result" style="font-size:13px;"></span>
+  </div>
+
   <!-- ── Question input (pinned to bottom of the card) ── -->
   <form id="ask-form"
     hx-post="/ask/query"
@@ -95,6 +108,9 @@
         ph.textContent = 'Ask a question to get started';
         thread.insertBefore(ph, thread.firstChild);
       }
+      // Hide save bar and clear status
+      document.getElementById('save-bar').style.display = 'none';
+      document.getElementById('save-result').innerHTML = '';
     });
   });
 
@@ -120,9 +136,10 @@
     qInput.value = '';
     qInput.focus();
     document.getElementById('ask-btn').disabled = false;
-    // Scroll the newest turn into view
+    // Show save bar once we have at least one turn
     var turns = thread.querySelectorAll('.chat-turn');
     if (turns.length) {
+      document.getElementById('save-bar').style.display = 'flex';
       turns[turns.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   });

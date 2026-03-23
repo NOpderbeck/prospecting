@@ -821,6 +821,7 @@ async def ask_query(
             {"role": "user",      "content": question},
             {"role": "assistant", "content": answer},
         ])
+        _conversations[conv_id]["turns"].append({"q": question, "a": answer})
     else:
         # First message includes the full enriched context (reports + web)
         first_context = report_text
@@ -833,6 +834,10 @@ async def ask_query(
         _conversations[conv_id] = {
             "report_text":  report_text,
             "source_label": source_label,
+            "slug":         slugify(company.strip()),
+            "company":      company.strip(),
+            "web_searched": web_searched,
+            "turns":        [{"q": question, "a": answer}],
             "messages": [
                 {"role": "user",      "content": f"{first_context}\n\n---\n\nQuestion: {question}"},
                 {"role": "assistant", "content": answer},
@@ -850,6 +855,56 @@ async def ask_query(
         "is_first":     not prior_msgs,
         "web_searched": web_searched,
     })
+
+
+@app.post("/ask/save", response_class=HTMLResponse)
+async def ask_save(request: Request, conv_id: str = Form("")):
+    if not conv_id or conv_id not in _conversations:
+        return HTMLResponse('<span class="save-status save-error">Session not found — ask a question first.</span>')
+
+    conv    = _conversations[conv_id]
+    slug    = conv["slug"]
+    company = conv["company"].replace("-", " ").title()
+    source  = conv["source_label"]
+    turns   = conv["turns"]
+    web_tag = " + web search" if conv.get("web_searched") else ""
+
+    # Build markdown
+    date_str = date.today().isoformat()
+    lines = [
+        f"# Ask Context — {company}",
+        f"**Date:** {date_str}  ",
+        f"**Source:** {source}{web_tag}",
+        "",
+        "---",
+        "",
+    ]
+    for turn in turns:
+        lines.append(f"**You:** {turn['q']}")
+        lines.append("")
+        lines.append(turn["a"])
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    content = "\n".join(lines)
+
+    # Save to reports/{slug}/YYYY-MM-DD_ask.md (append counter if collision)
+    out_dir = REPORTS_DIR / slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+    base = out_dir / f"{date_str}_ask.md"
+    path = base
+    counter = 1
+    while path.exists():
+        path = out_dir / f"{date_str}_ask_{counter}.md"
+        counter += 1
+
+    path.write_text(content, encoding="utf-8")
+    rel = f"/report/{slug}/{path.name}"
+    return HTMLResponse(
+        f'<span class="save-status save-ok">Saved as '
+        f'<a href="{rel}" target="_blank">{path.name}</a></span>'
+    )
 
 
 @app.get("/run/stream")
