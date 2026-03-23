@@ -10,7 +10,7 @@
       Source: <span class="answer-source">{{ source_label }}</span>
     </div>
     {% endif %}
-    <div class="answer-body">{{ answer_html }}</div>
+    <div class="answer-body">{{ answer_html | safe }}</div>
   </div>
 </div>
 {# OOB swap: update hidden conv_id so follow-up questions carry the session #}
