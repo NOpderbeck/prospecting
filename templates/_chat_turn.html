@@ -1,0 +1,17 @@
+{# Single Q&A turn — appended to #chat-thread via HTMX beforeend swap #}
+<div class="chat-turn">
+  <div class="chat-q">
+    <span class="chat-label chat-label-you">You</span>
+    <span class="chat-q-text">{{ question }}</span>
+  </div>
+  <div class="chat-a">
+    {% if is_first %}
+    <div class="answer-meta" style="margin-bottom:12px;">
+      Source: <span class="answer-source">{{ source_label }}</span>
+    </div>
+    {% endif %}
+    <div class="answer-body">{{ answer_html }}</div>
+  </div>
+</div>
+{# OOB swap: update hidden conv_id so follow-up questions carry the session #}
+<input type="hidden" id="conv-id" name="conv_id" value="{{ conv_id }}" hx-swap-oob="true">

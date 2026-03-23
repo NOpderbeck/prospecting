@@ -1,92 +1,135 @@
 {% extends "base.html" %}
-{% block title %}Ask — Prospecting Toolkit{% endblock %}
+{% block title %}Ask — P0{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <h2>Ask a Question</h2>
-  <p>Query any account report with natural language &mdash; no API connectors needed</p>
+  <p>Query any account report with natural language &mdash; follow up to ideate on the output</p>
 </div>
 
-<div class="ask-form-wrap">
-  <form
-    hx-post="/ask/query"
-    hx-target="#ask-result"
-    hx-indicator="#ask-indicator"
-    hx-swap="innerHTML"
-    onsubmit="showLoading()"
-  >
-    <div class="form-row">
-      <div class="form-group">
-        <label for="company-select">Account</label>
-        <select class="form-control" id="company-select" name="company" required>
-          <option value="">— Select account —</option>
-          {% for acct in accounts %}
-          <option value="{{ acct.slug }}" {% if acct.slug == prefill_company %}selected{% endif %}>
-            {{ acct.display }}
-          </option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="type-select">Report type <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
-        <select class="form-control" id="type-select" name="report_type">
-          <option value="">All types (latest)</option>
-          <option value="lookup"   {% if prefill_type == 'lookup'   %}selected{% endif %}>Lookup</option>
-          <option value="context"  {% if prefill_type == 'context'  %}selected{% endif %}>Context</option>
-          <option value="research" {% if prefill_type == 'research' %}selected{% endif %}>Research</option>
-          <option value="score"    {% if prefill_type == 'score'    %}selected{% endif %}>Score</option>
-        </select>
-      </div>
-    </div>
+<div class="ask-wrap">
 
-    <div class="form-group">
-      <label for="question-input">Question</label>
+  <!-- ── Config bar (account + report type + scope) ── -->
+  <div class="ask-config-bar">
+    <div class="form-group" style="margin:0;flex:1;min-width:160px;">
+      <label for="company-select">Account</label>
+      <select class="form-control" id="company-select" name="company" form="ask-form" required>
+        <option value="">— Select account —</option>
+        {% for acct in accounts %}
+        <option value="{{ acct.slug }}" {% if acct.slug == prefill_company %}selected{% endif %}>
+          {{ acct.display }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="margin:0;flex:1;min-width:140px;">
+      <label for="type-select">Report type <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+      <select class="form-control" id="type-select" name="report_type" form="ask-form">
+        <option value="">All types (latest)</option>
+        <option value="lookup"   {% if prefill_type == 'lookup'   %}selected{% endif %}>Lookup</option>
+        <option value="context"  {% if prefill_type == 'context'  %}selected{% endif %}>Context</option>
+        <option value="research" {% if prefill_type == 'research' %}selected{% endif %}>Research</option>
+        <option value="score"    {% if prefill_type == 'score'    %}selected{% endif %}>Score</option>
+      </select>
+    </div>
+    <div class="checkbox-group" style="margin-top:20px;white-space:nowrap;">
+      <input type="checkbox" id="use-all-check" name="use_all" value="true" form="ask-form"/>
+      <label for="use-all-check">All reports</label>
+    </div>
+  </div>
+
+  <!-- ── Conversation thread ── -->
+  <div id="chat-thread">
+    <div id="chat-empty" class="chat-empty">
+      Ask a question to get started
+    </div>
+  </div>
+
+  <!-- ── Question input (pinned to bottom of the card) ── -->
+  <form id="ask-form"
+    hx-post="/ask/query"
+    hx-target="#chat-thread"
+    hx-swap="beforeend"
+  >
+    <input type="hidden" id="conv-id" name="conv_id" value="">
+    <div class="ask-input-row">
       <input
         class="form-control"
         id="question-input"
         name="question"
         type="text"
-        placeholder="e.g. What is the status of the NDA? What are the action items?"
+        placeholder="Ask a question… or follow up on the answer above"
         required
         autofocus
       />
-    </div>
-
-    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-      <button class="btn btn-primary" type="submit">Ask Claude →</button>
-      <div class="checkbox-group">
-        <input type="checkbox" id="use-all-check" name="use_all" value="true"/>
-        <label for="use-all-check">Search across all reports (not just latest)</label>
-      </div>
+      <button class="btn btn-primary" type="submit" id="ask-btn">Ask →</button>
     </div>
   </form>
-</div>
 
-<!-- Result -->
-<div id="ask-result">
-  <div style="color:var(--muted);font-size:14px;text-align:center;padding:24px 0;">
-    Answer will appear here
-  </div>
-</div>
-
-<!-- Loading indicator (hidden by HTMX when not loading) -->
-<div id="ask-indicator" style="display:none;">
-  <div class="ask-loading">
-    <span class="spinner"></span> Asking Claude…
-  </div>
 </div>
 
 <script>
-// Show loading state when form is submitted
-function showLoading() {
-  document.getElementById('ask-result').innerHTML =
-    '<div class="ask-loading"><span class="spinner"></span> Asking Claude&hellip;</div>';
-}
+(function () {
+  var form     = document.getElementById('ask-form');
+  var thread   = document.getElementById('chat-thread');
+  var qInput   = document.getElementById('question-input');
+  var convId   = document.getElementById('conv-id');
+  var emptyMsg = document.getElementById('chat-empty');
 
-// HTMX: swap loading state immediately on submit
-document.querySelector('form').addEventListener('htmx:beforeRequest', function() {
-  document.getElementById('ask-result').innerHTML =
-    '<div class="ask-loading"><span class="spinner"></span> Asking Claude&hellip;</div>';
-});
+  // ── Reset conversation when account or report type changes ───────────────
+  ['company-select', 'type-select'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', function () {
+      convId.value = '';
+      // Remove all turns, restore empty placeholder
+      thread.querySelectorAll('.chat-turn').forEach(function (t) { t.remove(); });
+      if (!document.getElementById('chat-empty')) {
+        var ph = document.createElement('div');
+        ph.id = 'chat-empty';
+        ph.className = 'chat-empty';
+        ph.textContent = 'Ask a question to get started';
+        thread.insertBefore(ph, thread.firstChild);
+      }
+    });
+  });
+
+  // ── Show "thinking" bubble while waiting ─────────────────────────────────
+  document.body.addEventListener('htmx:beforeRequest', function (e) {
+    if (e.detail.elt !== form) return;
+    var empty = document.getElementById('chat-empty');
+    if (empty) empty.remove();
+    var thinking = document.createElement('div');
+    thinking.id = 'chat-thinking';
+    thinking.className = 'chat-thinking';
+    thinking.innerHTML = '<span class="spinner"></span> Thinking\u2026';
+    thread.appendChild(thinking);
+    thinking.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    document.getElementById('ask-btn').disabled = true;
+  });
+
+  // ── After response: remove thinking, clear input, scroll, re-enable ──────
+  document.body.addEventListener('htmx:afterSettle', function (e) {
+    if (e.detail.target !== thread) return;
+    var thinking = document.getElementById('chat-thinking');
+    if (thinking) thinking.remove();
+    qInput.value = '';
+    qInput.focus();
+    document.getElementById('ask-btn').disabled = false;
+    // Scroll the newest turn into view
+    var turns = thread.querySelectorAll('.chat-turn');
+    if (turns.length) {
+      turns[turns.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  });
+
+  // ── On error: remove thinking bubble and re-enable ───────────────────────
+  document.body.addEventListener('htmx:responseError', function (e) {
+    if (e.detail.elt !== form) return;
+    var thinking = document.getElementById('chat-thinking');
+    if (thinking) thinking.remove();
+    document.getElementById('ask-btn').disabled = false;
+  });
+})();
 </script>
 {% endblock %}

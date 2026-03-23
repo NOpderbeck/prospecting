@@ -17,6 +17,7 @@ import os
 import sys
 import json
 import time
+import uuid
 import shutil
 import argparse
 import asyncio
@@ -38,6 +39,11 @@ from ask import find_reports, load_reports, ask_claude
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
+
+# In-memory conversation store for multi-turn Ask sessions.
+# Keyed by conv_id (UUID string); value holds the report text and message
+# history so follow-up questions don't need to reload reports.
+_conversations: dict[str, dict] = {}
 
 load_dotenv(override=True)
 
@@ -743,30 +749,65 @@ async def ask_query(
     question: str = Form(...),
     report_type: str = Form(""),
     use_all: str = Form(""),
+    conv_id: str = Form(""),
 ):
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    slug = slugify(company.strip())
-    paths = find_reports(slug, str(REPORTS_DIR), report_type)
 
-    if not paths:
-        return HTMLResponse(
-            f'<div class="answer-error">No reports found for <strong>{company}</strong>.'
-            f' Run a script first.</div>'
-        )
+    # ── Resume or start a conversation ──────────────────────────────────────
+    if conv_id and conv_id in _conversations:
+        conv = _conversations[conv_id]
+        report_text  = conv["report_text"]
+        source_label = conv["source_label"]
+        prior_msgs   = conv["messages"]
+    else:
+        slug  = slugify(company.strip())
+        paths = find_reports(slug, str(REPORTS_DIR), report_type)
+        if not paths:
+            return HTMLResponse(
+                f'<div class="chat-turn answer-error">'
+                f'No reports found for <strong>{company}</strong>. Run a script first.'
+                f'</div>'
+            )
+        paths_to_load = paths if use_all else [paths[-1]]
+        report_text  = load_reports(paths_to_load)
+        source_label = "all reports" if use_all else paths[-1].name
+        prior_msgs   = []
+        conv_id      = str(uuid.uuid4())
 
-    paths_to_load = paths if use_all else [paths[-1]]
-    report_text = load_reports(paths_to_load)
-    source_label = "all reports" if use_all else paths[-1].name
+    # ── Call Claude ──────────────────────────────────────────────────────────
+    answer = await asyncio.to_thread(
+        ask_claude, report_text, question, api_key, prior_msgs or None
+    )
 
-    answer = ask_claude(report_text, question, api_key)
-    answer_html = render_markdown(answer)
+    # ── Persist turn into conversation store ────────────────────────────────
+    if prior_msgs:
+        # Follow-up: append new pair to existing history
+        _conversations[conv_id]["messages"].extend([
+            {"role": "user",      "content": question},
+            {"role": "assistant", "content": answer},
+        ])
+    else:
+        # First turn: store report text + full first exchange
+        _conversations[conv_id] = {
+            "report_text":  report_text,
+            "source_label": source_label,
+            "messages": [
+                {"role": "user",      "content": f"{report_text}\n\n---\n\nQuestion: {question}"},
+                {"role": "assistant", "content": answer},
+            ],
+        }
 
-    return HTMLResponse(f"""
-        <div class="answer-meta">
-            Answered from: <span class="answer-source">{source_label}</span>
-        </div>
-        <div class="answer-body">{answer_html}</div>
-    """)
+    answer_html  = render_markdown(answer)
+    is_first_str = "true" if not prior_msgs else "false"
+
+    return templates.TemplateResponse("_chat_turn.html", {
+        "request":      request,
+        "question":     question,
+        "answer_html":  answer_html,
+        "conv_id":      conv_id,
+        "source_label": source_label,
+        "is_first":     not prior_msgs,
+    })
 
 
 @app.get("/run/stream")

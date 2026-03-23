@@ -197,6 +197,7 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 .badge-score         { background: #3a2a10; color: #e8964d; }
 .badge-meeting_prep  { background: #0e2e30; color: #4ecdc4; }
 .badge-extracted     { background: #1e2a1e; color: #7bc47b; }
+.badge-prospect      { background: #1a1e3a; color: #818cf8; }
 .badge-unknown       { background: var(--surface2); color: var(--muted); }
 
 /* ── Buttons ─────────────────────────────────────────────── */
@@ -395,6 +396,27 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 .report-prose code  { font-family: var(--mono); background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #a8d0f0; }
 .report-prose pre   { background: #0a0c12; border: 1px solid var(--border); border-radius: 7px; padding: 16px; overflow-x: auto; margin-bottom: 14px; }
 .report-prose pre code { background: none; padding: 0; }
+
+.pre-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--font);
+  font-weight: 500;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
+  line-height: 18px;
+}
+.report-prose pre:hover .pre-copy-btn { opacity: 1; }
+.pre-copy-btn:hover  { background: var(--surface2); color: var(--text); border-color: var(--accent); }
+.pre-copy-btn.copied { color: var(--green); border-color: var(--green); opacity: 1; }
 .report-prose table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 14px; }
 .report-prose th    { background: var(--surface2); color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
 .report-prose td    { padding: 8px 12px; border: 1px solid var(--border); color: #d0d4ee; }
@@ -404,49 +426,105 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 
 /* ── Ask interface ───────────────────────────────────────── */
 
-.ask-form-wrap {
+/* Outer wrapper — one connected card */
+.ask-wrap {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 24px;
-  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-#ask-result {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 24px;
-  min-height: 80px;
+/* Config bar: account + type + scope */
+.ask-config-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
 }
 
-.answer-meta {
-  font-size: 12px;
+/* Conversation thread */
+#chat-thread {
+  padding: 24px 24px 8px;
+  min-height: 100px;
+  flex: 1;
+}
+
+.chat-empty {
   color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 28px 0 20px;
+}
+
+/* Individual Q&A turn */
+.chat-turn {
+  margin-bottom: 28px;
+}
+.chat-turn + .chat-turn {
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+/* User question bubble */
+.chat-q {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 9px 14px;
   margin-bottom: 16px;
-}
-
-.answer-source {
-  color: var(--accent);
+  font-size: 14px;
   font-weight: 500;
+  color: var(--text);
 }
+.chat-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+.chat-label-you { color: var(--accent); }
 
-.answer-body { }
-.answer-body p  { margin-bottom: 12px; color: #d0d4ee; }
-.answer-body ul { margin: 0 0 12px 18px; color: #d0d4ee; }
-.answer-body li { margin-bottom: 4px; }
-.answer-body strong { color: var(--text); }
-.answer-body code { font-family: var(--mono); background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-
-.answer-error { color: var(--red); font-size: 14px; }
-
-.ask-loading {
+/* Claude "thinking" bubble */
+.chat-thinking {
   display: flex;
   align-items: center;
   gap: 10px;
   color: var(--muted);
   font-size: 14px;
+  padding: 10px 0 20px;
 }
+
+/* Answer content */
+.answer-meta   { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.answer-source { color: var(--accent); font-weight: 500; }
+
+.answer-body p      { margin-bottom: 12px; color: #d0d4ee; }
+.answer-body ul     { margin: 0 0 12px 18px; color: #d0d4ee; }
+.answer-body ol     { margin: 0 0 12px 18px; color: #d0d4ee; }
+.answer-body li     { margin-bottom: 4px; }
+.answer-body strong { color: var(--text); }
+.answer-body code   { font-family: var(--mono); background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+.answer-body h3     { font-size: 14px; font-weight: 700; margin: 16px 0 8px; color: var(--text); }
+
+.answer-error { color: var(--red); font-size: 14px; padding: 16px 0; }
+
+/* Question input row at the bottom */
+.ask-input-row {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+}
+.ask-input-row .form-control { flex: 1; }
 
 /* ── History table ───────────────────────────────────────── */
 

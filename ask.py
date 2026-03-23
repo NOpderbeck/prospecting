@@ -105,24 +105,42 @@ def load_reports(paths: list[Path]) -> str:
 # Claude Q&A
 # ---------------------------------------------------------------------------
 
-def ask_claude(report_text: str, question: str, api_key: str) -> str:
+def ask_claude(
+    report_text: str,
+    question: str,
+    api_key: str,
+    messages: list | None = None,
+) -> str:
+    """
+    Ask Claude a question about account reports.
+
+    On the first turn (messages=None) the report text is embedded in the first
+    user message so Claude has full context.  On follow-up turns the caller
+    passes the accumulated message history; the report text is already present
+    in the first message of that history so we just append the new question.
+    """
     client = anthropic.Anthropic(api_key=api_key)
+
+    if messages:
+        # Follow-up: append new question to existing history
+        full_messages = messages + [{"role": "user", "content": question}]
+    else:
+        # First question: embed report text so Claude has context
+        full_messages = [
+            {"role": "user", "content": f"{report_text}\n\n---\n\nQuestion: {question}"}
+        ]
+
     try:
         message = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1024,
+            max_tokens=2048,
             system=(
                 "You are a senior sales analyst. You are given one or more account reports "
                 "for a B2B sales team. Answer the user's question based only on the information "
                 "in the reports. Be concise and specific — cite names, dates, and amounts where "
                 "they appear. If the answer is not in the reports, say so directly."
             ),
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{report_text}\n\n---\n\nQuestion: {question}",
-                }
-            ],
+            messages=full_messages,
         )
         return message.content[0].text
     except anthropic.AuthenticationError:
