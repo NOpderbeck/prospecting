@@ -110,36 +110,57 @@ def ask_claude(
     question: str,
     api_key: str,
     messages: list | None = None,
+    web_results: str = "",
 ) -> str:
     """
-    Ask Claude a question about account reports.
+    Ask Claude a question about account reports, optionally augmented with
+    live You.com web search results.
 
-    On the first turn (messages=None) the report text is embedded in the first
-    user message so Claude has full context.  On follow-up turns the caller
-    passes the accumulated message history; the report text is already present
-    in the first message of that history so we just append the new question.
+    On the first turn (messages=None) the report text — and any web results —
+    are embedded in the first user message.  On follow-up turns the caller
+    passes the accumulated message history; the enriched context is already
+    present so we just append the new question.
     """
     client = anthropic.Anthropic(api_key=api_key)
 
     if messages:
-        # Follow-up: append new question to existing history
+        # Follow-up: prior context already in history, just add new question
         full_messages = messages + [{"role": "user", "content": question}]
     else:
-        # First question: embed report text so Claude has context
+        # First question: embed report text + optional live web results
+        context = report_text
+        if web_results:
+            context += (
+                "\n\n=== LIVE WEB SEARCH RESULTS ===\n"
+                f"(retrieved now via You.com for: {question})\n\n"
+                f"{web_results}"
+            )
         full_messages = [
-            {"role": "user", "content": f"{report_text}\n\n---\n\nQuestion: {question}"}
+            {"role": "user", "content": f"{context}\n\n---\n\nQuestion: {question}"}
         ]
+
+    if web_results and not messages:
+        system = (
+            "You are a senior sales analyst. You are given one or more account reports "
+            "for a B2B sales team, along with live web search results retrieved right now. "
+            "Answer the user's question drawing on both sources — prefer specific details "
+            "from the reports, and supplement with the web results for recent news or context "
+            "not yet in the reports. Be concise and specific — cite names, dates, and amounts "
+            "where they appear. If neither source answers the question, say so directly."
+        )
+    else:
+        system = (
+            "You are a senior sales analyst. You are given one or more account reports "
+            "for a B2B sales team. Answer the user's question based only on the information "
+            "in the reports. Be concise and specific — cite names, dates, and amounts where "
+            "they appear. If the answer is not in the reports, say so directly."
+        )
 
     try:
         message = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
-            system=(
-                "You are a senior sales analyst. You are given one or more account reports "
-                "for a B2B sales team. Answer the user's question based only on the information "
-                "in the reports. Be concise and specific — cite names, dates, and amounts where "
-                "they appear. If the answer is not in the reports, say so directly."
-            ),
+            system=system,
             messages=full_messages,
         )
         return message.content[0].text

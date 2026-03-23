@@ -8,6 +8,9 @@
     {% if is_first %}
     <div class="answer-meta" style="margin-bottom:12px;">
       Source: <span class="answer-source">{{ source_label }}</span>
+      {% if web_searched %}
+      <span class="badge badge-web-search">🔍 web search</span>
+      {% endif %}
     </div>
     {% endif %}
     <div class="answer-body">{{ answer_html | safe }}</div>

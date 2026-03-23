@@ -197,6 +197,7 @@ a:hover { color: var(--accent-h); text-decoration: underline; }
 .badge-score         { background: #3a2a10; color: #e8964d; }
 .badge-meeting_prep  { background: #0e2e30; color: #4ecdc4; }
 .badge-extracted     { background: #1e2a1e; color: #7bc47b; }
+.badge-web-search    { background: #1a2233; color: #6c8ef5; margin-left: 8px; }
 .badge-prospect      { background: #1a1e3a; color: #818cf8; }
 .badge-unknown       { background: var(--surface2); color: var(--muted); }
 

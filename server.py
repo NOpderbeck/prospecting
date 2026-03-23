@@ -34,6 +34,7 @@ from dotenv import load_dotenv
 
 import db as db_module
 from context import slugify
+import requests as _requests
 from ask import find_reports, load_reports, ask_claude
 
 # ---------------------------------------------------------------------------
@@ -44,6 +45,30 @@ from ask import find_reports, load_reports, ask_claude
 # Keyed by conv_id (UUID string); value holds the report text and message
 # history so follow-up questions don't need to reload reports.
 _conversations: dict[str, dict] = {}
+
+
+def _youcom_search(query: str, num_results: int = 5) -> str:
+    """Run a You.com web search and return formatted snippets, or '' on failure."""
+    api_key = os.getenv("YOUCOM_API_KEY", "")
+    if not api_key:
+        return ""
+    try:
+        resp = _requests.get(
+            "https://api.you.com/v1/search",
+            params={"query": query, "num_web_results": num_results},
+            headers={"X-API-Key": api_key, "Accept": "application/json"},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return ""
+        hits = resp.json().get("results", {}).get("web", [])
+        parts = []
+        for h in hits:
+            snippet = " ".join(h.get("snippets", []))
+            parts.append(f"**{h.get('title', '')}** ({h.get('url', '')})\n{snippet}")
+        return "\n\n".join(parts)
+    except Exception:
+        return ""
 
 load_dotenv(override=True)
 
@@ -750,6 +775,7 @@ async def ask_query(
     report_type: str = Form(""),
     use_all: str = Form(""),
     conv_id: str = Form(""),
+    web_search: str = Form(""),
 ):
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
 
@@ -759,6 +785,7 @@ async def ask_query(
         report_text  = conv["report_text"]
         source_label = conv["source_label"]
         prior_msgs   = conv["messages"]
+        web_searched = False   # web search only runs on first turn
     else:
         slug  = slugify(company.strip())
         paths = find_reports(slug, str(REPORTS_DIR), report_type)
@@ -773,32 +800,46 @@ async def ask_query(
         source_label = "all reports" if use_all else paths[-1].name
         prior_msgs   = []
         conv_id      = str(uuid.uuid4())
+        web_searched = False
+
+    # ── Optional You.com web search (first turn only) ────────────────────────
+    web_results = ""
+    if web_search and not prior_msgs:
+        company_display = company.strip().title()
+        web_query   = f'"{company_display}" {question.rstrip("?!")}'
+        web_results = await asyncio.to_thread(_youcom_search, web_query)
+        web_searched = bool(web_results)
 
     # ── Call Claude ──────────────────────────────────────────────────────────
     answer = await asyncio.to_thread(
-        ask_claude, report_text, question, api_key, prior_msgs or None
+        ask_claude, report_text, question, api_key, prior_msgs or None, web_results
     )
 
     # ── Persist turn into conversation store ────────────────────────────────
     if prior_msgs:
-        # Follow-up: append new pair to existing history
         _conversations[conv_id]["messages"].extend([
             {"role": "user",      "content": question},
             {"role": "assistant", "content": answer},
         ])
     else:
-        # First turn: store report text + full first exchange
+        # First message includes the full enriched context (reports + web)
+        first_context = report_text
+        if web_results:
+            first_context += (
+                "\n\n=== LIVE WEB SEARCH RESULTS ===\n"
+                f"(retrieved now via You.com for: {question})\n\n"
+                f"{web_results}"
+            )
         _conversations[conv_id] = {
             "report_text":  report_text,
             "source_label": source_label,
             "messages": [
-                {"role": "user",      "content": f"{report_text}\n\n---\n\nQuestion: {question}"},
+                {"role": "user",      "content": f"{first_context}\n\n---\n\nQuestion: {question}"},
                 {"role": "assistant", "content": answer},
             ],
         }
 
-    answer_html  = render_markdown(answer)
-    is_first_str = "true" if not prior_msgs else "false"
+    answer_html = render_markdown(answer)
 
     return templates.TemplateResponse("_chat_turn.html", {
         "request":      request,
@@ -807,6 +848,7 @@ async def ask_query(
         "conv_id":      conv_id,
         "source_label": source_label,
         "is_first":     not prior_msgs,
+        "web_searched": web_searched,
     })
 
 
