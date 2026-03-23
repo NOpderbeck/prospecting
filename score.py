@@ -1,7 +1,7 @@
 """
 score.py — You.com API Fit Scorer
 
-Profiles and scores a company against You.com Search API / RAG buying signals.
+Profiles and scores a company against You.com Web Search API buying signals.
 Optionally ingests an existing research report from research.py as additional context.
 
 Usage:
@@ -30,14 +30,17 @@ from dotenv import load_dotenv
 
 DIMENSIONS = [
     {
-        "key": "llm_chat_citations",
-        "label": "External-facing LLM / chat with citations",
+        "key": "web_search_product",
+        "label": "External-facing AI product requiring live web data",
         "max": 2,
         "rubric": (
-            "2 = Clear evidence of a customer-facing chat or LLM product that cites sources, "
-            "displays grounded answers, or markets research/intelligence/monitoring capabilities. "
-            "1 = Product exists but citation/grounding is unclear or secondary. "
-            "0 = No external-facing LLM/chat found, or product is purely internal."
+            "2 = Clear evidence of a customer-facing AI product (chat, assistant, research tool, "
+            "news feed, market intelligence) that requires real-time web results — it would "
+            "degrade or break without fresh external data. "
+            "1 = Product uses AI but live web data is not a stated core requirement; a static "
+            "knowledge base could plausibly substitute. "
+            "0 = No external-facing AI product found, or product operates entirely on "
+            "internal or static data."
         ),
     },
     {
@@ -47,7 +50,7 @@ DIMENSIONS = [
         "rubric": (
             "2 = Builds or promotes AI agents that research, compare, browse the web, or act on "
             "behalf of users (e.g. coding assistants, DevOps copilots, deep-research agents). "
-            "1 = Some agentic capabilities but browsing/retrieval is not a stated core use case. "
+            "1 = Some agentic capabilities but live web browsing is not a stated core use case. "
             "0 = No agent workflows, or agents operate on internal data only."
         ),
     },
@@ -68,21 +71,23 @@ DIMENSIONS = [
         "label": "Existing third-party search integration",
         "max": 2,
         "rubric": (
-            "2 = Confirmed use of a third-party search or SERP API (e.g. Bing, Google, SerpAPI, "
-            "Brave, Exa, Tavily, or similar), or references RAG / retrieval pipelines in public "
-            "engineering content, architecture diagrams, or job postings. "
-            "1 = Indirect signals (e.g. general mention of web grounding without specifying vendor). "
-            "0 = No evidence of external search tooling."
+            "2 = Confirmed use of a third-party web search or SERP API (e.g. Bing, Google, "
+            "SerpAPI, Brave, Exa, Tavily, or similar), or references web search / live browsing "
+            "in public engineering content, architecture diagrams, or job postings. "
+            "1 = Indirect signals (e.g. general mention of external web access without specifying "
+            "a vendor). "
+            "0 = No evidence of external web search tooling."
         ),
     },
     {
-        "key": "hiring_retrieval",
-        "label": "Hiring for retrieval / search roles",
+        "key": "hiring_search",
+        "label": "Hiring for web search / data engineering roles",
         "max": 2,
         "rubric": (
-            "2 = Active or recent job postings for retrieval engineers, search relevance engineers, "
-            "RAG evaluation specialists, ranking/ML engineers, or vector database experts. "
-            "1 = General ML/AI hiring but no specific retrieval-focused roles identified. "
+            "2 = Active or recent job postings for search engineers, web data engineers, "
+            "SERP/API integration engineers, search relevance engineers, or ranking/ML engineers "
+            "focused on web search quality or live data pipelines. "
+            "1 = General ML/AI hiring but no specific web-search-focused roles identified. "
             "0 = No relevant hiring signals found."
         ),
     },
@@ -122,7 +127,7 @@ def get_tier(total: int):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Score a company for You.com Search API / RAG fit.",
+        description="Score a company for You.com Web Search API fit.",
         epilog='Example: python score.py "Salesforce" --url https://www.salesforce.com --verbose',
     )
     parser.add_argument("company", help="Company name to score")
@@ -263,18 +268,18 @@ def build_scoring_queries(company: str) -> list:
     return [
         {
             "name": "product_signals",
-            "label": "Product Signals (LLM / chat / research / intelligence)",
+            "label": "Product Signals (AI products requiring live web data)",
             "query": (
-                f'"{company}" AI chat LLM citations sources grounded answers '
-                f"research intelligence monitoring agent"
+                f'"{company}" AI assistant chat product live web data real-time '
+                f"news current events search results external data"
             ),
         },
         {
-            "name": "agent_rag_signals",
-            "label": "Agent & RAG Signals (browsing / retrieval workflows)",
+            "name": "agent_search_signals",
+            "label": "Agent & Search Signals (web browsing / live data workflows)",
             "query": (
-                f'"{company}" AI agent research browsing web search retrieval '
-                f"RAG grounding tool-use deep research"
+                f'"{company}" AI agent web browsing search tool-use '
+                f"live web data real-time lookup internet access"
             ),
         },
         {
@@ -287,26 +292,26 @@ def build_scoring_queries(company: str) -> list:
         },
         {
             "name": "technical_signals",
-            "label": "Technical Signals (search APIs / retrieval architecture)",
+            "label": "Technical Signals (web search API usage / architecture)",
             "query": (
-                f'"{company}" search API SERP Bing Brave Exa Tavily retrieval pipeline '
-                f"engineering blog architecture vector database RAG"
+                f'"{company}" search API SERP Bing Brave Exa Tavily web search integration '
+                f"engineering blog architecture API usage"
             ),
         },
         {
             "name": "hiring_signals",
-            "label": "Hiring Signals (retrieval / search / RAG roles)",
+            "label": "Hiring Signals (web search / data engineering roles)",
             "query": (
-                f'"{company}" jobs hiring retrieval engineer search relevance '
-                f"ranking ML RAG evaluation vector database"
+                f'"{company}" jobs hiring search engineer web data SERP API '
+                f"search relevance ranking ML live data pipeline"
             ),
         },
         {
             "name": "pain_expansion_signals",
             "label": "Pain & Expansion Signals (switching triggers / growth)",
             "query": (
-                f'"{company}" deep research agent search quality latency rate limit '
-                f"coverage new vertical citation accuracy"
+                f'"{company}" search quality latency rate limit API costs '
+                f"coverage new vertical query volume scale"
             ),
         },
     ]
@@ -437,7 +442,7 @@ EXISTING RESEARCH REPORT (additional context)
         dimensions_block += f"\n### Dimension {i}: {d['label']} (0–{d['max']} points)\n"
         dimensions_block += f"Scoring rubric: {d['rubric']}\n"
 
-    prompt = f"""You are a senior sales engineer at You.com evaluating whether "{company}" is a strong potential buyer of You.com's Search API and RAG solutions.
+    prompt = f"""You are a senior sales engineer at You.com evaluating whether "{company}" is a strong potential buyer of You.com's Web Search API.
 
 Below is research evidence gathered from targeted web searches, optionally preceded by the company's own website content and a broader research report.
 
@@ -467,18 +472,18 @@ Write the score report using EXACTLY this markdown structure. Be specific — qu
 
 | # | Dimension | Score | Max |
 |---|-----------|-------|-----|
-| 1 | External-facing LLM / chat with citations | [0-2] | 2 |
-| 2 | Agent workflows requiring browsing / research | [0-2] | 2 |
+| 1 | External-facing AI product requiring live web data | [0-2] | 2 |
+| 2 | Agent workflows requiring live web browsing | [0-2] | 2 |
 | 3 | Timeliness-critical domain | [0-2] | 2 |
-| 4 | Existing third-party search integration | [0-2] | 2 |
-| 5 | Hiring for retrieval / search roles | [0-2] | 2 |
+| 4 | Existing third-party web search integration | [0-2] | 2 |
+| 5 | Hiring for web search / data engineering roles | [0-2] | 2 |
 | | **Total** | **[sum]** | **10** |
 
 ---
 
 ## Dimension Scores & Evidence
 
-### 1. External-facing LLM / chat with citations — [X]/2
+### 1. External-facing AI product requiring live web data — [X]/2
 
 **Evidence:**
 [Cite specific products, features, marketing copy, or press releases found in the evidence]
@@ -488,7 +493,7 @@ Write the score report using EXACTLY this markdown structure. Be specific — qu
 
 ---
 
-### 2. Agent workflows requiring browsing / research — [X]/2
+### 2. Agent workflows requiring live web browsing — [X]/2
 
 **Evidence:**
 [Cite specific agents, use cases, blog posts, or product pages]
@@ -518,7 +523,7 @@ Write the score report using EXACTLY this markdown structure. Be specific — qu
 
 ---
 
-### 5. Hiring for retrieval / search roles — [X]/2
+### 5. Hiring for web search / data engineering roles — [X]/2
 
 **Evidence:**
 [Cite specific job titles, teams, or postings found in the evidence]
@@ -534,7 +539,7 @@ List the 3–5 strongest specific signals that make this account attractive (or 
 
 ## Pain & Expansion Triggers
 
-Describe any signals that suggest the account is actively searching for a better search/retrieval solution, expanding into new verticals, or building new agent capabilities that would require increased search volume.
+Describe any signals that suggest the account is actively searching for a better web search API solution, expanding into new verticals, or building new agent capabilities that would require increased search volume.
 
 ## Anti-Signals Summary
 
@@ -542,7 +547,7 @@ List any signals that reduce fit priority (internal-only tools, no external know
 
 ## Sales Rep Recommendation
 
-Write 2–3 sentences summarizing who at this company to approach, what angle to lead with (Search API, RAG, freshness/grounding, agent workflows), and any specific products or announcements to reference in outreach.
+Write 2–3 sentences summarizing who at this company to approach, what angle to lead with (Web Search API, real-time data freshness, search volume, agent workflows), and any specific products or announcements to reference in outreach.
 
 ---
 
@@ -578,7 +583,7 @@ def score_with_claude(
             max_tokens=4096,
             system=(
                 "You are a senior sales engineer at You.com. Your job is to evaluate potential "
-                "enterprise accounts for fit with You.com's Search API and RAG solutions. "
+                "enterprise accounts for fit with You.com's Web Search API. "
                 "You are rigorous, evidence-based, and concise. You never fabricate signals — "
                 "if evidence is absent, you say so and score accordingly."
             ),

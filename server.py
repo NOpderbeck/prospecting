@@ -68,7 +68,7 @@ SCRIPT_META = {
     "score": {
         "label": "Fit Score",
         "script": "score.py",
-        "description": "Score the account on weighted dimensions for You.com Search API / RAG fit.",
+        "description": "Score the account on weighted dimensions for You.com Web Search API fit.",
         "color": "orange",
         "icon": "📊",
     },
@@ -87,6 +87,13 @@ SCRIPT_META = {
         "color": "purple",
         "icon": "📋",
         "no_company": True,
+    },
+    "prospect": {
+        "label": "Prospect Research",
+        "script": "prospect.py",
+        "description": "Research a company, find the right execs, pull verified LinkedIn profiles, and generate personalized outreach intros.",
+        "color": "indigo",
+        "icon": "🎯",
     },
 }
 
@@ -816,6 +823,8 @@ async def run_stream(
             cmd.append("--news")
         if url and script == "score":
             cmd += ["--url", url]
+        if script == "prospect" and limit and limit != "0":
+            cmd += ["--count", limit]
 
     if verbose == "true":
         cmd.append("--verbose")
