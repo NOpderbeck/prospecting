@@ -378,6 +378,25 @@ def build_message(ae_rows: list[dict], date_str: str) -> str:
             flag_str = f" _[{', '.join(flags)}]_" if flags else ""
             lines.append(f"• *{acct}*{flag_str} — {sentence}")
 
+            # Last activity + close date metadata line
+            if d["days_silent"] is None:
+                activity_str = "never"
+            elif d["days_silent"] == 0:
+                activity_str = "today"
+            elif d["days_silent"] == 1:
+                activity_str = "1 day ago"
+            else:
+                activity_str = f"{d['days_silent']} days ago"
+
+            cd = d.get("close_date") or ""
+            try:
+                from datetime import date as _date
+                cd_fmt = _date.fromisoformat(cd[:10]).strftime("%-m/%-d/%Y") if cd else "—"
+            except ValueError:
+                cd_fmt = cd
+
+            lines.append(f"  _Last Activity: {activity_str} · Close Date: {cd_fmt}_")
+
         lines.append("")
 
     return "\n".join(lines)
