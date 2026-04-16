@@ -333,7 +333,7 @@ def build_message(ae_rows: list[dict], date_str: str) -> str:
             if d["overdue"]:
                 flags.append(f"⚠️ {abs(d['days_to_close'] or 0)}d overdue")
             elif d.get("days_to_close") is not None and d["days_to_close"] <= 14:
-                flags.append(f"closes {d['days_to_close']}d")
+                flags.append(f"due in {d['days_to_close']}d")
             if (d["days_silent"] or 0) > 21:
                 flags.append(f"silent {d['days_silent']}d")
 
