@@ -80,9 +80,23 @@ def fetch_target_aes(sf) -> list[dict]:
     return results
 
 
+def _quarter_window() -> tuple[str, str]:
+    """Return (first_day, last_day) of the current calendar quarter as YYYY-MM-DD strings."""
+    today = date.today()
+    q_start_month = ((today.month - 1) // 3) * 3 + 1          # 1, 4, 7, or 10
+    q_end_month   = q_start_month + 2
+    import calendar
+    last_day = calendar.monthrange(today.year, q_end_month)[1]
+    start = date(today.year, q_start_month, 1).strftime("%Y-%m-%d")
+    end   = date(today.year, q_end_month, last_day).strftime("%Y-%m-%d")
+    return start, end
+
+
 def fetch_open_opps(sf, ae_ids: list[str]) -> list[dict]:
-    ids_str = "', '".join(ae_ids)
-    cutoff  = (date.today() + timedelta(days=60)).strftime("%Y-%m-%d")
+    """Fetch open opps closing this quarter (today → end of quarter), excluding overdue."""
+    ids_str   = "', '".join(ae_ids)
+    today_str = date.today().strftime("%Y-%m-%d")
+    _, q_end  = _quarter_window()
     return soql(sf, f"""
         SELECT Id, Name, AccountId, Account.Name, Account.Account_Tier__c,
                StageName, Amount, CloseDate,
@@ -91,7 +105,8 @@ def fetch_open_opps(sf, ae_ids: list[str]) -> list[dict]:
         FROM Opportunity
         WHERE IsClosed = false
         AND OwnerId IN ('{ids_str}')
-        AND CloseDate <= {cutoff}
+        AND CloseDate >= {today_str}
+        AND CloseDate <= {q_end}
         ORDER BY CloseDate ASC NULLS LAST
     """)
 
@@ -315,7 +330,7 @@ def build_message(ae_rows: list[dict], date_str: str) -> str:
 
     lines += [
         f"*📋 Team Digest — {date_str}*",
-        f"_{total_deals} deals closing in 60 days · {_fmt_amount(total_amt)} pipeline_",
+        f"_{total_deals} deals closing this quarter · {_fmt_amount(total_amt)} pipeline_",
         "",
     ]
 
