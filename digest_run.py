@@ -200,7 +200,15 @@ def enrich_deals(opp_records: list[dict], tasks_by_account: dict) -> list[dict]:
     return deals
 
 
-# ── Claude narrative ─────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def short_name(full_name: str) -> str:
+    """'David Wacker' → 'David W.'  'Andrew Miller-McKeever' → 'Andrew M.'"""
+    parts = full_name.strip().split()
+    if len(parts) >= 2:
+        return f"{parts[0]} {parts[-1][0]}."
+    return full_name
+
 
 def _fmt_amount(amount) -> str:
     if not amount:
@@ -253,107 +261,85 @@ def _deal_context(deal: dict) -> str:
     return "\n".join(lines)
 
 
-def generate_ae_narrative(ae_name: str, deals: list[dict], client) -> str:
+def generate_deal_summaries(ae_name: str, deals: list[dict], client) -> dict[str, str]:
     """
-    Ask Claude to write a 4–5 sentence manager narrative for this AE's pipeline,
-    focused on week-over-week changes and what to discuss.
+    Ask Claude for a 1–2 sentence update per deal.
+    Returns {account_name: sentence} parsed from JSON response.
     """
+    import json as _json
+
     today_str = date.today().strftime("%B %-d, %Y")
-
-    total_amt = sum(d.get("amount") or 0 for d in deals)
-    overdue   = [d for d in deals if d["overdue"]]
-    silent    = [d for d in deals if (d["days_silent"] or 0) > 21]
-    active_tw = [d for d in deals if d["tasks_this_week"]]
-
     deal_blocks = "\n\n".join(_deal_context(d) for d in deals)
+    account_names = [d["account_name"] for d in deals]
 
     prompt = f"""You are writing a weekly deal digest for a sales manager reviewing {ae_name}'s pipeline before a team call. Today is {today_str}.
-
-{ae_name} has {len(deals)} open deal(s) totalling {_fmt_amount(total_amt)}.
-- {len(active_tw)} deal(s) had activity this week
-- {len(silent)} deal(s) have been silent for 21+ days
-- {len(overdue)} deal(s) are past their close date
 
 Deal details:
 {deal_blocks}
 
-Write a 4–5 sentence narrative for the manager. Cover:
-1. What moved or changed this week vs last week (name the specific deal)
-2. The biggest risk or stale deal needing attention
-3. Any deal with strong momentum worth accelerating
-4. One specific question to ask {ae_name} on the call
+Write a 1–2 sentence update for each deal. Each sentence should convey what changed this week vs last week and the single most important next action or risk. Be specific — reference actual activity, dates, or people where available.
 
-Rules: plain prose only — no markdown headers, no bullet points, no bold text, no section labels. Just sentences. Be direct and name specific deals. If a deal name contains pipe-separated suffixes like 'Renewal | $X | Plan', use only the company name portion."""
+Return ONLY a JSON object where each key is the exact account name and each value is the update sentence. Account names to use as keys: {account_names}
+
+Rules: no markdown, no bold, no extra keys. Plain sentences only."""
 
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=400,
+            max_tokens=600,
             messages=[{"role": "user", "content": prompt}],
         )
-        return msg.content[0].text.strip()
+        raw = msg.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+        if raw.endswith("```"):
+            raw = "\n".join(raw.split("\n")[:-1])
+        return _json.loads(raw.strip())
     except Exception as e:
         print(f"  Claude error for {ae_name}: {e}", file=sys.stderr)
-        return f"(narrative unavailable — {e})"
+        return {d["account_name"]: "(summary unavailable)" for d in deals}
 
 
 # ── Slack output ─────────────────────────────────────────────────────────────
 
-def build_message(ae_narratives: list[dict], date_str: str) -> str:
-    """ae_narratives = [{name, deals, narrative}, ...]"""
-    today = date.today()
+def build_message(ae_rows: list[dict], date_str: str) -> str:
+    """ae_rows = [{name, deals, summaries: {account_name: sentence}}, ...]"""
     lines: list[str] = []
 
-    total_deals = sum(len(r["deals"]) for r in ae_narratives)
+    total_deals = sum(len(r["deals"]) for r in ae_rows)
     total_amt   = sum(
         sum(d.get("amount") or 0 for d in r["deals"])
-        for r in ae_narratives
+        for r in ae_rows
     )
 
     lines += [
         f"*📋 Team Digest — {date_str}*",
-        f"_{total_deals} open deals · {_fmt_amount(total_amt)} pipeline · "
-        f"{', '.join(r['name'].split()[0] for r in ae_narratives)}_",
+        f"_{total_deals} deals closing in 60 days · {_fmt_amount(total_amt)} pipeline_",
         "",
     ]
 
-    for row in ae_narratives:
-        name   = row["name"]
-        deals  = row["deals"]
-        n      = len(deals)
-        amt    = sum(d.get("amount") or 0 for d in deals)
-        overdue = sum(1 for d in deals if d["overdue"])
-        silent  = sum(1 for d in deals if (d["days_silent"] or 0) > 21)
+    for row in ae_rows:
+        display = short_name(row["name"])
+        deals   = row["deals"]
+        sums    = row["summaries"]  # {account_name: sentence}
 
-        meta_parts = [f"{n} deals", _fmt_amount(amt)]
-        if overdue:
-            meta_parts.append(f"{overdue} overdue")
-        if silent:
-            meta_parts.append(f"{silent} silent 21d+")
+        lines.append(f"*{display}*")
 
-        lines += [
-            f"*{name}* _({', '.join(meta_parts)})_",
-            row["narrative"],
-            "",
-        ]
+        for d in deals:
+            acct   = d["account_name"]
+            sentence = sums.get(acct, "")
+            flags: list[str] = []
+            if d["overdue"]:
+                flags.append(f"⚠️ {abs(d['days_to_close'] or 0)}d overdue")
+            elif d.get("days_to_close") is not None and d["days_to_close"] <= 14:
+                flags.append(f"closes {d['days_to_close']}d")
+            if (d["days_silent"] or 0) > 21:
+                flags.append(f"silent {d['days_silent']}d")
 
-    # ── Overdue deals footer ──────────────────────────────────────────────────
-    all_deals = [d for r in ae_narratives for d in r["deals"]]
-    overdue_deals = sorted(
-        [d for d in all_deals if d["overdue"]],
-        key=lambda d: d.get("close_date") or "",
-    )
-    if overdue_deals:
-        lines.append("*⚠️ Overdue Close Dates*")
-        for d in overdue_deals:
-            days_over = abs(d["days_to_close"] or 0)
-            silent_str = f" · {d['days_silent']}d silent" if (d["days_silent"] or 0) > 7 else ""
-            # Strip dollar amounts / plan suffixes from SF opp name for readability
-            short_name = d["name"].split(" | ")[0].strip()
-            lines.append(
-                f"• *{short_name}* ({d['owner_name']}) · {days_over}d overdue"
-                + silent_str
-            )
+            flag_str = f" _[{', '.join(flags)}]_" if flags else ""
+            lines.append(f"• *{acct}*{flag_str} — {sentence}")
+
         lines.append("")
 
     return "\n".join(lines)
@@ -432,20 +418,20 @@ def main():
         name  = ae["Name"]
         deals = deals_by_owner.get(name, [])
         print(f"  {name}: {len(deals)} deal(s)")
-        ae_rows.append({"name": name, "deals": deals, "narrative": ""})
+        ae_rows.append({"name": name, "deals": deals, "summaries": {}})
 
-    # ── Claude narratives (parallel) ──────────────────────────────────────────
+    # ── Claude per-deal summaries (parallel) ──────────────────────────────────
     if not anthropic_key:
-        print("⚠️  No ANTHROPIC_API_KEY — narratives will be blank", file=sys.stderr)
+        print("⚠️  No ANTHROPIC_API_KEY — summaries will be blank", file=sys.stderr)
         for row in ae_rows:
-            row["narrative"] = "(narrative unavailable — no API key)"
+            row["summaries"] = {d["account_name"]: "(unavailable)" for d in row["deals"]}
     else:
         import anthropic
         client = anthropic.Anthropic(api_key=anthropic_key)
-        print(f"Generating {len(ae_rows)} narrative(s)...")
+        print(f"Generating deal summaries for {len(ae_rows)} AE(s)...")
 
         def _gen(row):
-            row["narrative"] = generate_ae_narrative(row["name"], row["deals"], client)
+            row["summaries"] = generate_deal_summaries(row["name"], row["deals"], client)
             return row["name"]
 
         with ThreadPoolExecutor(max_workers=4) as pool:
