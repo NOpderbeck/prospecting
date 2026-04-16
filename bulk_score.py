@@ -20,6 +20,7 @@ import re
 import sys
 import time
 import argparse
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -205,8 +206,9 @@ def main():
         score_with_claude,
         write_score_report,
         get_tier,
+        _parse_total_score,
     )
-    from context import pull_salesforce
+    from context import pull_salesforce, slugify
 
     sheet_id = parse_sheet_id(args.sheet_url)
     service  = get_sheets_service(config, args.verbose)
@@ -224,7 +226,11 @@ def main():
     total_rows = len(data_rows)
     processed  = 0
     skipped    = 0
+    reused     = 0
     errors     = 0
+
+    # Track slugs processed in this run to catch in-sheet duplicates
+    seen_slugs: set[str] = set()
 
     limit_str = f" (limit: {args.limit})" if args.limit else ""
     print(f"\nBulk Fit Score — {total_rows} prospect rows found{limit_str}")
@@ -238,6 +244,8 @@ def main():
         "db_path":           "",
     }
 
+    output_dir = Path(args.output_dir)
+
     for i, row in enumerate(data_rows, start=2):  # sheet row index (1-indexed, row 1 = header)
         company          = row[0].strip() if row else ""
         domain           = row[1].strip() if len(row) > 1 else ""
@@ -245,10 +253,12 @@ def main():
 
         row_num = i - 1  # display index (1 = first data row)
 
-        # Skip rows that already have a score
+        # ── Guard 1: sheet cell already has a score ───────────────────────
         if existing_score and existing_score != "ERROR":
+            slug = slugify(company) if company else ""
+            seen_slugs.add(slug)
             skipped += 1
-            print(f"  [{row_num}/{total_rows}] {company or '(blank)'} — skipped (score already set: {existing_score})", flush=True)
+            print(f"  [{row_num}/{total_rows}] {company or '(blank)'} — skipped (score in sheet: {existing_score})", flush=True)
             continue
 
         if not company:
@@ -256,11 +266,49 @@ def main():
             print(f"  [{row_num}/{total_rows}] (blank row) — skipped", flush=True)
             continue
 
+        slug = slugify(company)
+
+        # ── Guard 2: same company already processed earlier in this sheet ─
+        if slug in seen_slugs:
+            skipped += 1
+            print(f"  [{row_num}/{total_rows}] {company} — skipped (duplicate in sheet, already processed above)", flush=True)
+            continue
+
+        # ── Guard 3: existing local score report ──────────────────────────
+        score_files = sorted((output_dir / slug).glob("*_score.md"), reverse=True) \
+                      if (output_dir / slug).exists() else []
+        if score_files:
+            existing_file = score_files[0]
+            try:
+                existing_text  = existing_file.read_text(encoding="utf-8")
+                existing_total = _parse_total_score(existing_text)
+                if existing_total >= 0:
+                    tier_label, tier_icon, _ = get_tier(existing_total)
+                    score_str = f"{tier_icon} {existing_total}/10 ({tier_label})"
+                    rationale = _extract_rationale(existing_text, existing_total, tier_label)
+                    sheets.values().update(
+                        spreadsheetId=sheet_id,
+                        range=f"Sheet1!D{i}:E{i}",
+                        valueInputOption="RAW",
+                        body={"values": [[score_str, rationale]]},
+                    ).execute()
+                    seen_slugs.add(slug)
+                    reused += 1
+                    print(
+                        f"  [{row_num}/{total_rows}] {company} — reused existing report "
+                        f"({existing_file.name}, score: {score_str})",
+                        flush=True,
+                    )
+                    continue
+            except Exception as reuse_err:
+                print(f"  [{row_num}/{total_rows}] {company} — could not reuse existing report ({reuse_err}), re-scoring", flush=True)
+
         # Enforce limit (counts only rows that will actually be processed)
         if args.limit and processed >= args.limit:
             print(f"  Limit of {args.limit} reached — stopping.", flush=True)
             break
 
+        seen_slugs.add(slug)
         print(f"\n[{row_num}/{total_rows}] Scoring: {company}", flush=True)
         print("-" * 40, flush=True)
 
@@ -357,7 +405,7 @@ def main():
             time.sleep(1)
 
     print(f"\n{'=' * 60}")
-    print(f"Done.  Processed: {processed}  |  Skipped: {skipped}  |  Errors: {errors}")
+    print(f"Done.  Processed: {processed}  |  Reused: {reused}  |  Skipped: {skipped}  |  Errors: {errors}")
 
 
 if __name__ == "__main__":

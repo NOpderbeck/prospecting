@@ -29,4 +29,36 @@
   {{ html_body | safe }}
 </div>
 
+<script>
+// Open all links in the report in a new tab
+document.querySelectorAll('.report-prose a').forEach(function(a) {
+  a.setAttribute('target', '_blank');
+  a.setAttribute('rel', 'noopener noreferrer');
+});
+
+// Inject a copy button into every <pre> block inside the report
+document.querySelectorAll('.report-prose pre').forEach(function(pre) {
+  pre.style.position = 'relative';
+
+  var btn = document.createElement('button');
+  btn.className = 'pre-copy-btn';
+  btn.title = 'Copy to clipboard';
+  btn.textContent = 'Copy';
+
+  btn.addEventListener('click', function() {
+    var code = pre.querySelector('code');
+    var text = code ? code.innerText : pre.innerText;
+    navigator.clipboard.writeText(text).then(function() {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(function() {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 2000);
+    });
+  });
+
+  pre.appendChild(btn);
+});
+</script>
 {% endblock %}

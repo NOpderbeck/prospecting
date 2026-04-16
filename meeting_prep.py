@@ -143,6 +143,11 @@ def parse_args():
         help="Number of days to look ahead (1-5, default: 1)",
     )
     parser.add_argument(
+        "--tomorrow",
+        action="store_true",
+        help="Start window from tomorrow midnight instead of today",
+    )
+    parser.add_argument(
         "--output-dir",
         default="reports",
         help="Directory to save reports (default: reports/)",
@@ -156,6 +161,13 @@ def parse_args():
         "--email",
         action="store_true",
         help="Convert output to HTML and email it (requires SMTP_USER and SMTP_PASSWORD in .env)",
+    )
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Target a specific calendar date (e.g. 2026-04-09); overrides --days and --tomorrow",
     )
     return parser.parse_args()
 
@@ -302,8 +314,8 @@ def get_google_creds(config: dict, verbose: bool):
 # Google Calendar
 # ---------------------------------------------------------------------------
 
-def fetch_calendar_events(creds, days: int, verbose: bool) -> list:
-    """Fetch calendar events for today through today + N days."""
+def fetch_calendar_events(creds, days: int, verbose: bool, args=None) -> list:
+    """Fetch calendar events for today (or tomorrow) through today + N days."""
     try:
         from googleapiclient.discovery import build
     except ImportError:
@@ -312,8 +324,17 @@ def fetch_calendar_events(creds, days: int, verbose: bool) -> list:
 
     svc = build("calendar", "v3", credentials=creds)
     now = datetime.now(timezone.utc)
-    time_min = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    time_max = time_min + timedelta(days=days)
+    target_date = getattr(args, "date", None)
+    if target_date:
+        from datetime import date as date_cls
+        d = date_cls.fromisoformat(target_date)
+        time_min = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
+        time_max = time_min + timedelta(days=1)
+    else:
+        time_min = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if getattr(args, "tomorrow", False):
+            time_min += timedelta(days=1)
+        time_max = time_min + timedelta(days=days)
 
     try:
         result = svc.events().list(
@@ -1226,7 +1247,7 @@ def main():
     # -----------------------------------------------------------------
     print("\n[1/5] Connecting to Google Calendar...")
     creds = get_google_creds(config, args.verbose)
-    events = fetch_calendar_events(creds, args.days, args.verbose)
+    events = fetch_calendar_events(creds, args.days, args.verbose, args)
     external_meetings = [
         e for e in events
         if is_external_meeting(e, my_domain, internal_title_patterns, internal_emails)
@@ -1386,7 +1407,8 @@ def main():
         brief_content = synthesize_meeting_prep(meeting_data, config["anthropic_api_key"], args.verbose)
         briefs.append({"meeting": meeting, "content": brief_content})
 
-    filepath = write_meeting_prep(briefs, args.days, args.output_dir)
+    effective_days = 1 if getattr(args, "date", None) else args.days
+    filepath = write_meeting_prep(briefs, effective_days, args.output_dir)
 
     print(f"\nDone! Meeting prep saved to: {filepath}")
 

@@ -42,7 +42,7 @@
         />
       </div>
       <div class="form-group" id="domain-group">
-        <label for="domain-input">Domain <span style="color:var(--muted);font-weight:400;">(optional, lookup only)</span></label>
+        <label for="domain-input">Domain <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
         <input
           class="form-control"
           id="domain-input"
@@ -222,7 +222,7 @@ function selectScript(key) {
   document.getElementById('opt-news').style.display       = key === 'lookup'     ? 'flex'  : 'none';
   document.getElementById('opt-url').style.display        = key === 'score'      ? 'block' : 'none';
   document.getElementById('opt-bulk-score').style.display = key === 'bulk_score' ? 'block' : 'none';
-  document.getElementById('domain-group').style.display   = key === 'lookup'     ? 'block' : 'none';
+  document.getElementById('domain-group').style.display   = (key === 'lookup' || key === 'prospect') ? 'block' : 'none';
 }
 
 // Init on load
