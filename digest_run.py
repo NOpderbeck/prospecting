@@ -301,19 +301,42 @@ Rules: no markdown, no bold, no extra keys. Plain sentences only."""
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=600,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = msg.content[0].text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = "\n".join(raw.split("\n")[1:])
-        if raw.endswith("```"):
-            raw = "\n".join(raw.split("\n")[:-1])
-        return _json.loads(raw.strip())
+
+        # Extract JSON object even if Claude wraps it in prose or code fences
+        start = raw.find("{")
+        end   = raw.rfind("}") + 1
+        if start != -1 and end > start:
+            raw = raw[start:end]
+
+        result = _json.loads(raw)
+
+        # Fill any missing keys so no deal is silently dropped
+        for d in deals:
+            if d["account_name"] not in result:
+                result[d["account_name"]] = "(no summary)"
+        return result
+
     except Exception as e:
         print(f"  Claude error for {ae_name}: {e}", file=sys.stderr)
-        return {d["account_name"]: "(summary unavailable)" for d in deals}
+        # Fall back to generating one sentence per deal individually
+        results = {}
+        for d in deals:
+            try:
+                m = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=150,
+                    messages=[{"role": "user", "content":
+                        f"Write one sentence summarising this deal for a sales manager digest.\n\n"
+                        f"{_deal_context(d)}\n\nOne sentence only, no markdown."}],
+                )
+                results[d["account_name"]] = m.content[0].text.strip()
+            except Exception as e2:
+                results[d["account_name"]] = f"(error: {e2})"
+        return results
 
 
 # ── Slack output ─────────────────────────────────────────────────────────────
