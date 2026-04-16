@@ -82,6 +82,7 @@ def fetch_target_aes(sf) -> list[dict]:
 
 def fetch_open_opps(sf, ae_ids: list[str]) -> list[dict]:
     ids_str = "', '".join(ae_ids)
+    cutoff  = (date.today() + timedelta(days=60)).strftime("%Y-%m-%d")
     return soql(sf, f"""
         SELECT Id, Name, AccountId, Account.Name, Account.Account_Tier__c,
                StageName, Amount, CloseDate,
@@ -90,6 +91,7 @@ def fetch_open_opps(sf, ae_ids: list[str]) -> list[dict]:
         FROM Opportunity
         WHERE IsClosed = false
         AND OwnerId IN ('{ids_str}')
+        AND CloseDate <= {cutoff}
         ORDER BY CloseDate ASC NULLS LAST
     """)
 
