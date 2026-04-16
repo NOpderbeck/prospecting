@@ -1,67 +1,42 @@
 """
 digest_run.py — Weekly Team Meeting Digest.
 
-Pulls all open opportunities for the AE team, enriches each with SF Tasks,
-Gong call content (brief, key points, trackers), and Next_Step_Historical__c,
-computes momentum/risk scores, generates Claude synopses for flagged deals,
-and posts a structured digest to #team-weekly-digest.
+Pulls open opportunities for 4 target AEs, enriches with SF Tasks and
+Next_Step_Historical__c, then asks Claude to write a narrative paragraph per AE
+summarising week-over-week changes. Posts to #team-weekly-digest.
 
 Runs Monday 7 AM PT as Cloud Run job `digest-report`.
 
 Usage (local):
-    python3 digest_run.py [--date "April 21, 2026"] [--days 30]
+    python3 digest_run.py [--date "April 21, 2026"]
 
 Environment variables:
-    SF_USERNAME, SF_PASSWORD, SF_SECURITY_TOKEN  — Salesforce creds
-    GONG_API_KEY, GONG_API_SECRET                — Gong REST credentials
-    SLACK_BOT_TOKEN                              — Slack bot token
-    ANTHROPIC_API_KEY                            — Claude API key
+    SF_USERNAME, SF_PASSWORD, SF_SECURITY_TOKEN
+    SLACK_BOT_TOKEN
+    ANTHROPIC_API_KEY
 """
 
 import argparse
-import base64
 import os
 import re
 import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from dotenv import load_dotenv
 
 ENV_PATH      = os.path.join(os.path.dirname(__file__), ".env")
 SLACK_CHANNEL = "#team-weekly-digest"
-GONG_BASE     = "https://us-64844.api.gong.io"
 
-# AEs who don't have UserRole = 'Sales - AE' but should be included
-ADDITIONAL_AE_IDS: set[str] = {
-    "005fo000000d1nSAAQ",  # David Wacker (VP, AE)
-    "005fo000000d3AvAAI",  # Haroon Anwar
-}
+# The 4 AEs this digest covers (matched against SF User.Name)
+TARGET_AE_NAMES = [
+    "David Wacker",
+    "Ryan Reed",
+    "Ryan Allred",
+    "Andrew Miller-McKeever",
+]
 
-EXCLUDE_NAME_FRAGMENTS: list[str] = ["bluplanet", "blue planet"]
-
-# Gong calls shorter than this (seconds) are skipped
-MIN_CALL_SECONDS = 120
-
-# Number of top discussion priorities to surface at end
-DISCUSSION_TOP_N = 5
-
-# Status labels
-STATUS_CRITICAL  = "Critical"
-STATUS_AT_RISK   = "At Risk"
-STATUS_ADVANCING = "Advancing"
-STATUS_STABLE    = "Stable"
-STATUS_SILENT    = "Silent"
-
-STATUS_EMOJI = {
-    STATUS_CRITICAL:  "🔴",
-    STATUS_AT_RISK:   "🟠",
-    STATUS_ADVANCING: "🟢",
-    STATUS_STABLE:    "🟡",
-    STATUS_SILENT:    "⚫",
-}
-
-# Next-step history entry pattern: "Owner Name (Month DD, YYYY): text"
+# Next-step history pattern: "Owner Name (Month DD, YYYY): text"
 NS_PATTERN = re.compile(
     r'^(.+?)\s*\((\w+ \d{1,2}, \d{4})\):\s*(.+)$',
     re.MULTILINE,
@@ -87,37 +62,25 @@ def soql(sf, query: str) -> list:
         return []
 
 
-def is_excluded(name: str) -> bool:
-    low = name.lower()
-    return any(frag in low for frag in EXCLUDE_NAME_FRAGMENTS)
-
-
-def fetch_ae_roster(sf) -> list[dict]:
-    """Return SF User records for all active AEs."""
-    records = soql(sf, """
-        SELECT Id, Name, Email
-        FROM User
-        WHERE IsActive = true
-        AND UserRole.Name = 'Sales - AE'
-        ORDER BY Name
-    """)
-    if ADDITIONAL_AE_IDS:
-        ids_str = "', '".join(ADDITIONAL_AE_IDS)
-        extras = soql(sf, f"""
+def fetch_target_aes(sf) -> list[dict]:
+    """Look up the 4 target AEs by exact name."""
+    results = []
+    for name in TARGET_AE_NAMES:
+        rows = soql(sf, f"""
             SELECT Id, Name, Email
             FROM User
-            WHERE Id IN ('{ids_str}')
-            AND IsActive = true
+            WHERE IsActive = true
+            AND Name = '{name}'
+            LIMIT 1
         """)
-        existing = {r["Id"] for r in records}
-        for r in extras:
-            if r["Id"] not in existing:
-                records.append(r)
-    return [r for r in records if not is_excluded(r.get("Name", ""))]
+        if rows:
+            results.append(rows[0])
+        else:
+            print(f"  ⚠️  User not found: {name}", file=sys.stderr)
+    return results
 
 
 def fetch_open_opps(sf, ae_ids: list[str]) -> list[dict]:
-    """Fetch all open opportunities owned by the AE team."""
     ids_str = "', '".join(ae_ids)
     return soql(sf, f"""
         SELECT Id, Name, AccountId, Account.Name, Account.Account_Tier__c,
@@ -131,18 +94,18 @@ def fetch_open_opps(sf, ae_ids: list[str]) -> list[dict]:
     """)
 
 
-def fetch_recent_tasks(sf, account_ids: list[str], days: int) -> list[dict]:
+def fetch_recent_tasks(sf, account_ids: list[str]) -> list[dict]:
     """
-    Fetch SF Tasks for all given account IDs in the last N days.
-    Includes WhatId so we can join opp-level tasks.
+    Fetch SF Tasks for given account IDs in the last 90 days.
+    90-day window lets us compute days_silent without a SOQL aggregate query.
     """
     if not account_ids:
         return []
-    since = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+    since = (date.today() - timedelta(days=90)).strftime("%Y-%m-%d")
     ids_str = "', '".join(account_ids)
     return soql(sf, f"""
         SELECT Id, WhatId, AccountId, OwnerId, Type, Subject,
-               ActivityDate, Status, Description, WhoId, Who.Name
+               ActivityDate, Status, Description, Who.Name
         FROM Task
         WHERE AccountId IN ('{ids_str}')
         AND ActivityDate >= {since}
@@ -150,316 +113,92 @@ def fetch_recent_tasks(sf, account_ids: list[str], days: int) -> list[dict]:
     """)
 
 
-# ── Next Step History Parsing ───────────────────────────────────────────────
+# ── Next Step Parsing ───────────────────────────────────────────────────────
 
 def parse_next_step_history(text: str) -> list[dict]:
-    """Parse timestamped next-step log into list of {owner, date, text}, newest first."""
     if not text:
         return []
     results = []
     for owner, date_str, content in NS_PATTERN.findall(text):
         try:
             dt = datetime.strptime(date_str.strip(), "%B %d, %Y").date()
-            results.append({
-                "owner": owner.strip(),
-                "date":  dt,
-                "text":  content.strip(),
-            })
+            results.append({"owner": owner.strip(), "date": dt, "text": content.strip()})
         except ValueError:
             pass
     return sorted(results, key=lambda x: x["date"], reverse=True)
 
 
-def days_since_date(d) -> int | None:
-    """Return days between d and today. d may be a date, datetime, or ISO string."""
-    if d is None:
-        return None
-    if isinstance(d, str):
-        d = d[:10]
-        d = date.fromisoformat(d)
-    if isinstance(d, datetime):
-        d = d.date()
-    return (date.today() - d).days
+# ── Deal enrichment ──────────────────────────────────────────────────────────
 
+def enrich_deals(opp_records: list[dict], tasks_by_account: dict) -> list[dict]:
+    """Attach task splits and last-activity data to each opp."""
+    today = date.today()
+    deals = []
 
-# ── Gong ────────────────────────────────────────────────────────────────────
+    for opp in opp_records:
+        account_id = opp.get("AccountId") or ""
+        account    = opp.get("Account") or {}
+        tasks      = tasks_by_account.get(account_id, [])
 
-def _gong_headers() -> dict:
-    key    = os.environ["GONG_API_KEY"]
-    secret = os.environ["GONG_API_SECRET"]
-    token  = base64.b64encode(f"{key}:{secret}".encode()).decode()
-    return {"Authorization": f"Basic {token}"}
-
-
-def fetch_gong_extensive(from_dt: datetime, to_dt: datetime) -> dict[str, list]:
-    """
-    Fetch all Gong calls in [from_dt, to_dt] via /v2/calls/extensive.
-    Returns {sf_account_id: [call_dict, ...]} indexed by Salesforce AccountId
-    found in each call's context objects.
-    """
-    import requests
-
-    url      = f"{GONG_BASE}/v2/calls/extensive"
-    from_str = from_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    to_str   = to_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    account_calls: dict[str, list] = defaultdict(list)
-    cursor = None
-    total  = 0
-
-    while True:
-        body: dict = {
-            "filter": {
-                "fromDateTime": from_str,
-                "toDateTime":   to_str,
-            },
-            "contentSelector": {
-                "exposedFields": {
-                    "parties": True,
-                    "content": {
-                        "structure":  False,
-                        "topics":     False,
-                        "trackers":   True,
-                        "brief":      True,
-                        "keyPoints":  True,
-                        "callOutcome": False,
-                    },
-                    "context": True,
-                }
-            },
-        }
-        if cursor:
-            body["cursor"] = cursor
-
-        try:
-            resp = requests.post(
-                url,
-                headers={**_gong_headers(), "Content-Type": "application/json"},
-                json=body,
-                timeout=60,
-            )
-            resp.raise_for_status()
-        except Exception as e:
-            print(f"  Gong extensive API error: {e}", file=sys.stderr)
-            break
-
-        data  = resp.json()
-        calls = data.get("calls", [])
-        total += len(calls)
-
-        for call in calls:
-            dur = (call.get("metaData") or {}).get("duration") or 0
-            if dur < MIN_CALL_SECONDS:
+        # Split tasks into this-week (0–7d) and last-week (7–14d)
+        tasks_this_week: list[dict] = []
+        tasks_last_week: list[dict] = []
+        for t in tasks:
+            ad = t.get("ActivityDate")
+            if not ad:
                 continue
+            age = (today - date.fromisoformat(ad[:10])).days
+            if age <= 7:
+                tasks_this_week.append(t)
+            else:
+                tasks_last_week.append(t)
 
-            # Extract SF Account IDs from context
-            sf_account_ids: set[str] = set()
-            for ctx in (call.get("context") or []):
-                if ctx.get("system") != "Salesforce":
-                    continue
-                for obj in (ctx.get("objects") or []):
-                    if obj.get("objectType") == "Account" and obj.get("objectId"):
-                        sf_account_ids.add(obj["objectId"])
+        # Days since most recent task in 90-day window
+        task_dates = [
+            date.fromisoformat(t["ActivityDate"][:10])
+            for t in tasks if t.get("ActivityDate")
+        ]
+        last_task_date = max(task_dates) if task_dates else None
+        days_silent = (today - last_task_date).days if last_task_date else None
 
-            for acct_id in sf_account_ids:
-                account_calls[acct_id].append(call)
+        # Next step history
+        ns_history = parse_next_step_history(opp.get("Next_Step_Historical__c") or "")
 
-        cursor = (data.get("records") or {}).get("cursor")
-        if not cursor:
-            break
+        # Close date
+        close_date_str = opp.get("CloseDate")
+        overdue = False
+        days_to_close = None
+        if close_date_str:
+            try:
+                cd = date.fromisoformat(close_date_str[:10])
+                days_to_close = (cd - today).days
+                overdue = days_to_close < 0
+            except ValueError:
+                pass
 
-    print(f"  Gong: {total} call(s) fetched, mapped to {len(account_calls)} SF account(s)")
-    return dict(account_calls)
+        deals.append({
+            "id":              opp.get("Id"),
+            "name":            opp.get("Name") or "?",
+            "account_id":      account_id,
+            "account_name":    account.get("Name") or "?",
+            "tier":            account.get("Account_Tier__c") or "",
+            "owner_name":      (opp.get("Owner") or {}).get("Name") or "?",
+            "stage":           opp.get("StageName") or "?",
+            "amount":          opp.get("Amount"),
+            "close_date":      close_date_str,
+            "days_to_close":   days_to_close,
+            "overdue":         overdue,
+            "next_step":       opp.get("NextStep") or "",
+            "ns_history":      ns_history,
+            "tasks_this_week": tasks_this_week,
+            "tasks_last_week": tasks_last_week,
+            "days_silent":     days_silent,
+        })
 
-
-# ── Scoring ─────────────────────────────────────────────────────────────────
-
-def compute_days_since_activity(tasks: list[dict], gong_calls: list) -> int | None:
-    """Return minimum days-since-last-touch across tasks and Gong calls."""
-    candidates: list[int] = []
-
-    for t in tasks:
-        d = days_since_date(t.get("ActivityDate"))
-        if d is not None:
-            candidates.append(d)
-
-    for call in gong_calls:
-        started = (call.get("metaData") or {}).get("started")
-        if started:
-            d = days_since_date(started)
-            if d is not None:
-                candidates.append(d)
-
-    return min(candidates) if candidates else None
-
-
-def gong_calls_within(gong_calls: list, days: int) -> list:
-    """Filter Gong calls to those within the last N days."""
-    cutoff = date.today() - timedelta(days=days)
-    result = []
-    for call in gong_calls:
-        started = (call.get("metaData") or {}).get("started")
-        if started and date.fromisoformat(started[:10]) >= cutoff:
-            result.append(call)
-    return result
+    return deals
 
 
-def momentum_score(tasks: list[dict], gong_calls: list, ns_history: list[dict]) -> int:
-    """
-    Compute momentum score 0–5.
-      +1  any task in last 30d
-      +1  task in last 14d
-      +1  next step updated in last 10d
-      +1  Gong call in last 30d
-      +1  Gong call in last 7d
-    """
-    score = 0
-
-    task_dates = [
-        date.fromisoformat(t["ActivityDate"][:10])
-        for t in tasks
-        if t.get("ActivityDate")
-    ]
-    if task_dates:
-        most_recent_task = max(task_dates)
-        score += 1  # any task in 30d
-        if (date.today() - most_recent_task).days <= 14:
-            score += 1
-
-    if ns_history:
-        days_ns = (date.today() - ns_history[0]["date"]).days
-        if days_ns <= 10:
-            score += 1
-
-    if gong_calls_within(gong_calls, 30):
-        score += 1
-    if gong_calls_within(gong_calls, 7):
-        score += 1
-
-    return min(score, 5)
-
-
-def risk_score(days_silent: int | None, ns_history: list[dict], tasks: list, gong_calls: list) -> int:
-    """
-    Compute risk score 0–4.
-      4  no activity in 30d+ (or never)
-      3  no activity in 21–29d
-      2  no activity in 14–20d
-      1  activity present but next step stale (>14d) and no gong call in 14d
-      0  otherwise
-    """
-    if days_silent is None or days_silent > 30:
-        return 4
-    if days_silent > 21:
-        return 3
-    if days_silent > 14:
-        return 2
-
-    # Mild risk: have recent activity but next step is stale and no recent Gong call
-    ns_stale = not ns_history or (date.today() - ns_history[0]["date"]).days > 14
-    no_recent_gong = not gong_calls_within(gong_calls, 14)
-    if ns_stale and no_recent_gong and days_silent > 7:
-        return 1
-
-    return 0
-
-
-def deal_status(momentum: int, risk: int) -> str:
-    """
-    Assign status bucket (first matching rule).
-    Advancing threshold is 3 (not 4) because Gong CRM context may be unavailable,
-    limiting max momentum from SF tasks alone to 3.
-    """
-    if risk >= 3:
-        return STATUS_CRITICAL
-    if risk >= 2 or (risk == 1 and momentum <= 1):
-        return STATUS_AT_RISK
-    if momentum >= 3:
-        return STATUS_ADVANCING
-    if momentum >= 2 or risk == 0:
-        return STATUS_STABLE
-    return STATUS_SILENT
-
-
-# ── Claude Synopsis ──────────────────────────────────────────────────────────
-
-def generate_synopsis(deal: dict, client) -> str:
-    """
-    Generate a 4-sentence internal deal synopsis using Claude haiku.
-    Covers: current status, last interaction, key risk/opportunity, discussion point.
-    """
-    parts: list[str] = [
-        f"Deal: {deal['name']} at {deal['account_name']}",
-        f"Stage: {deal['stage']} | Amount: ${(deal.get('amount') or 0):,.0f} | Close: {deal['close_date']}",
-        f"Owner: {deal['owner_name']}",
-        f"Status: {deal['status']} | Momentum {deal['momentum']}/5 | Risk {deal['risk']}/4",
-    ]
-
-    ns = deal.get("next_step") or ""
-    if ns:
-        parts.append(f"Next step (SF): {ns[:200]}")
-
-    ns_history = deal.get("ns_history") or []
-    if ns_history:
-        e = ns_history[0]
-        parts.append(f"Last next-step update ({e['date']}): {e['text'][:200]}")
-    else:
-        parts.append("Next-step history: none recorded")
-
-    tasks = deal.get("tasks") or []
-    recent_tasks = tasks[:5]
-    if recent_tasks:
-        task_lines = []
-        for t in recent_tasks:
-            desc = (t.get("Description") or "")[:120].strip().replace("\n", " ")
-            line = f"  {t.get('ActivityDate','?')} {t.get('Type','?')}: {t.get('Subject','?')[:60]}"
-            if desc:
-                line += f" — {desc}"
-            task_lines.append(line)
-        parts.append("Recent SF activity:\n" + "\n".join(task_lines))
-    else:
-        parts.append("Recent SF activity: none in last 30 days")
-
-    gong_calls = deal.get("gong_calls") or []
-    recent_calls = gong_calls[:2]
-    if recent_calls:
-        gong_lines = []
-        for call in recent_calls:
-            md    = call.get("metaData") or {}
-            brief = (call.get("content") or {}).get("brief") or ""
-            kpts  = (call.get("content") or {}).get("keyPoints") or []
-            started = (md.get("started") or "")[:10]
-            summary = brief[:250] if brief else "; ".join(str(k) for k in kpts[:3])
-            gong_lines.append(f"  {started}: {summary}")
-        parts.append("Gong calls:\n" + "\n".join(gong_lines))
-
-    context_text = "\n".join(parts)
-
-    try:
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[{
-                "role": "user",
-                "content": (
-                    "Write a 4-sentence internal deal digest for a sales manager reviewing "
-                    "this opportunity before a team meeting. Cover: "
-                    "(1) current momentum and where things stand, "
-                    "(2) most recent meaningful interaction, "
-                    "(3) the key risk or opportunity right now, "
-                    "(4) specific question or action to discuss with the rep.\n\n"
-                    f"{context_text}\n\n"
-                    "Write only the 4 sentences. No headers, no bullets."
-                ),
-            }],
-        )
-        return msg.content[0].text.strip()
-    except Exception as e:
-        print(f"  Claude synopsis error for {deal['name']}: {e}", file=sys.stderr)
-        return "(synopsis unavailable)"
-
-
-# ── Slack Message Builder ────────────────────────────────────────────────────
+# ── Claude narrative ─────────────────────────────────────────────────────────
 
 def _fmt_amount(amount) -> str:
     if not amount:
@@ -468,155 +207,154 @@ def _fmt_amount(amount) -> str:
         return f"${amount/1_000_000:.1f}M"
     if amount >= 1_000:
         return f"${amount/1_000:.0f}K"
-    return f"${amount:,.0f}"
+    return f"${int(amount):,}"
 
 
-def _fmt_close(close_date_str: str | None) -> str:
-    if not close_date_str:
-        return "?"
-    try:
-        d = date.fromisoformat(close_date_str[:10])
-        days_to = (d - date.today()).days
-        if days_to < 0:
-            return f"{d.strftime('%b %-d')} ⚠️overdue"
-        if days_to <= 30:
-            return f"{d.strftime('%b %-d')} ({days_to}d)"
-        return d.strftime("%b %-d")
-    except ValueError:
-        return close_date_str[:10]
-
-
-def build_message(deals: list[dict], date_str: str) -> str:
-    # Partition by status
-    by_status: dict[str, list] = defaultdict(list)
-    for d in deals:
-        by_status[d["status"]].append(d)
-
-    critical  = by_status[STATUS_CRITICAL]
-    at_risk   = by_status[STATUS_AT_RISK]
-    advancing = by_status[STATUS_ADVANCING]
-    stable    = by_status[STATUS_STABLE]
-    silent    = by_status[STATUS_SILENT]
-
-    total_opps = len(deals)
-    flagged    = len(critical) + len(at_risk)
-    lines: list[str] = []
-
-    # ── Header ───────────────────────────────────────────────────────────────
-    lines += [
-        f"*📋 Team Meeting Digest — {date_str}*",
-        f"_{total_opps} open deals across AE team · {flagged} flagged for attention_",
-        "",
+def _deal_context(deal: dict) -> str:
+    """Render one deal as a compact text block for the Claude prompt."""
+    lines = [
+        f"Deal: {deal['name']} ({deal['account_name']})",
+        f"  Stage: {deal['stage']} | Amount: {_fmt_amount(deal.get('amount'))} | "
+        f"Close: {deal['close_date'] or '?'}"
+        + (" ⚠️ OVERDUE" if deal["overdue"] else ""),
     ]
 
-    # ── Team Pulse ───────────────────────────────────────────────────────────
-    lines += [
-        "*Team Pulse*",
-        f"• 🔴 Critical: *{len(critical)}*  🟠 At Risk: *{len(at_risk)}*  "
-        f"🟢 Advancing: *{len(advancing)}*  🟡 Stable: *{len(stable)}*  ⚫ Silent: *{len(silent)}*",
-    ]
+    if deal["days_silent"] is None:
+        lines.append("  Activity: never touched")
+    elif deal["days_silent"] > 30:
+        lines.append(f"  Activity: silent {deal['days_silent']}d")
+    else:
+        lines.append(f"  Activity: last touch {deal['days_silent']}d ago")
 
-    # Overdue close dates
-    overdue = [d for d in deals if _is_overdue(d.get("close_date"))]
-    if overdue:
-        lines.append(f"• ⚠️  {len(overdue)} deal(s) past close date: "
-                     + ", ".join(f"*{d['name']}*" for d in overdue[:5]))
-    lines.append("")
+    tw = deal["tasks_this_week"]
+    lw = deal["tasks_last_week"]
+    if tw:
+        summaries = "; ".join(
+            f"{t.get('Type','?')}: {(t.get('Subject') or '')[:50]}" for t in tw[:3]
+        )
+        lines.append(f"  This week ({len(tw)} task(s)): {summaries}")
+    if lw:
+        summaries = "; ".join(
+            f"{t.get('Type','?')}: {(t.get('Subject') or '')[:40]}" for t in lw[:2]
+        )
+        lines.append(f"  Last week ({len(lw)} task(s)): {summaries}")
 
-    # ── Critical + At Risk (with synopsis) ───────────────────────────────────
-    flagged_deals = critical + at_risk
-    if flagged_deals:
-        lines.append("*🚨 Needs Attention*")
-        lines.append("─" * 36)
-        for d in flagged_deals:
-            emoji = STATUS_EMOJI[d["status"]]
-            days_silent_str = f"{d['days_silent']}d silent" if d["days_silent"] is not None else "never touched"
-            lines += [
-                f"{emoji} *{d['name']}* · {d['stage']} · {_fmt_amount(d.get('amount'))} · Close {_fmt_close(d.get('close_date'))}",
-                f"↳ Owner: {d['owner_name']} · Tier: {d.get('tier','?')} · "
-                f"Momentum {d['momentum']}/5 · Risk {d['risk']}/4 · {days_silent_str}",
-            ]
-            if d.get("synopsis"):
-                lines.append(f"_{d['synopsis']}_")
-            lines.append("")
+    ns = deal.get("next_step", "")
+    if ns:
+        lines.append(f"  Next step: {ns[:120]}")
 
-    # ── Advancing (with synopsis) ─────────────────────────────────────────────
-    if advancing:
-        lines.append("*🟢 Advancing — Expand / Accelerate*")
-        lines.append("─" * 36)
-        for d in advancing:
-            recent_call = _latest_gong_call(d.get("gong_calls", []))
-            call_note   = f"Gong call {recent_call}" if recent_call else "no recent Gong"
-            lines += [
-                f"*{d['name']}* · {d['stage']} · {_fmt_amount(d.get('amount'))} · Close {_fmt_close(d.get('close_date'))}",
-                f"↳ Owner: {d['owner_name']} · Momentum {d['momentum']}/5 · {call_note}",
-            ]
-            if d.get("synopsis"):
-                lines.append(f"_{d['synopsis']}_")
-            lines.append("")
-
-    # ── Stable list ───────────────────────────────────────────────────────────
-    if stable:
-        lines.append("*🟡 Stable*")
-        stable_sorted = sorted(stable, key=lambda d: d.get("close_date") or "9999")
-        for d in stable_sorted:
-            lines.append(
-                f"• *{d['name']}* ({d['owner_name']}) · {d['stage']} · "
-                f"{_fmt_amount(d.get('amount'))} · Close {_fmt_close(d.get('close_date'))} · "
-                f"M{d['momentum']}/R{d['risk']}"
-            )
-        lines.append("")
-
-    # ── Silent table ──────────────────────────────────────────────────────────
-    if silent:
-        lines.append(f"*⚫ Silent — {len(silent)} deal(s) with no recent signal*")
-        for d in silent:
-            days_str = f"{d['days_silent']}d" if d["days_silent"] is not None else "never"
-            lines.append(
-                f"• *{d['name']}* ({d['owner_name']}) · {d['stage']} · "
-                f"{_fmt_amount(d.get('amount'))} · {days_str} silent"
-            )
-        lines.append("")
-
-    # ── Discussion Priorities ─────────────────────────────────────────────────
-    # Rank: Critical first, then At Risk, then by risk desc, momentum asc
-    priority_pool = critical + at_risk
-    if len(priority_pool) < DISCUSSION_TOP_N:
-        priority_pool += advancing
-    priority_pool = priority_pool[:DISCUSSION_TOP_N]
-
-    if priority_pool:
-        lines.append(f"*💬 Discussion Priorities ({len(priority_pool)})*")
-        for i, d in enumerate(priority_pool, 1):
-            emoji = STATUS_EMOJI[d["status"]]
-            lines.append(f"{i}. {emoji} *{d['name']}* ({d['owner_name']}) — {d['stage']}, "
-                         f"Close {_fmt_close(d.get('close_date'))}")
-        lines.append("")
+    ns_h = deal.get("ns_history") or []
+    if ns_h:
+        e = ns_h[0]
+        lines.append(f"  Next step updated {e['date']}: {e['text'][:120]}")
 
     return "\n".join(lines)
 
 
-def _is_overdue(close_date_str: str | None) -> bool:
-    if not close_date_str:
-        return False
+def generate_ae_narrative(ae_name: str, deals: list[dict], client) -> str:
+    """
+    Ask Claude to write a 4–5 sentence manager narrative for this AE's pipeline,
+    focused on week-over-week changes and what to discuss.
+    """
+    today_str = date.today().strftime("%B %-d, %Y")
+
+    total_amt = sum(d.get("amount") or 0 for d in deals)
+    overdue   = [d for d in deals if d["overdue"]]
+    silent    = [d for d in deals if (d["days_silent"] or 0) > 21]
+    active_tw = [d for d in deals if d["tasks_this_week"]]
+
+    deal_blocks = "\n\n".join(_deal_context(d) for d in deals)
+
+    prompt = f"""You are writing a weekly deal digest for a sales manager reviewing {ae_name}'s pipeline before a team call. Today is {today_str}.
+
+{ae_name} has {len(deals)} open deal(s) totalling {_fmt_amount(total_amt)}.
+- {len(active_tw)} deal(s) had activity this week
+- {len(silent)} deal(s) have been silent for 21+ days
+- {len(overdue)} deal(s) are past their close date
+
+Deal details:
+{deal_blocks}
+
+Write a 4–5 sentence narrative for the manager. Cover:
+1. What moved or changed this week vs last week (name the specific deal)
+2. The biggest risk or stale deal needing attention
+3. Any deal with strong momentum worth accelerating
+4. One specific question to ask {ae_name} on the call
+
+Rules: plain prose only — no markdown headers, no bullet points, no bold text, no section labels. Just sentences. Be direct and name specific deals. If a deal name contains pipe-separated suffixes like 'Renewal | $X | Plan', use only the company name portion."""
+
     try:
-        return date.fromisoformat(close_date_str[:10]) < date.today()
-    except ValueError:
-        return False
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text.strip()
+    except Exception as e:
+        print(f"  Claude error for {ae_name}: {e}", file=sys.stderr)
+        return f"(narrative unavailable — {e})"
 
 
-def _latest_gong_call(calls: list) -> str | None:
-    """Return human-readable date of most recent Gong call, or None."""
-    best = None
-    for call in calls:
-        started = (call.get("metaData") or {}).get("started")
-        if started:
-            d = date.fromisoformat(started[:10])
-            if best is None or d > best:
-                best = d
-    if best:
-        return best.strftime("%b %-d")
-    return None
+# ── Slack output ─────────────────────────────────────────────────────────────
+
+def build_message(ae_narratives: list[dict], date_str: str) -> str:
+    """ae_narratives = [{name, deals, narrative}, ...]"""
+    today = date.today()
+    lines: list[str] = []
+
+    total_deals = sum(len(r["deals"]) for r in ae_narratives)
+    total_amt   = sum(
+        sum(d.get("amount") or 0 for d in r["deals"])
+        for r in ae_narratives
+    )
+
+    lines += [
+        f"*📋 Team Digest — {date_str}*",
+        f"_{total_deals} open deals · {_fmt_amount(total_amt)} pipeline · "
+        f"{', '.join(r['name'].split()[0] for r in ae_narratives)}_",
+        "",
+    ]
+
+    for row in ae_narratives:
+        name   = row["name"]
+        deals  = row["deals"]
+        n      = len(deals)
+        amt    = sum(d.get("amount") or 0 for d in deals)
+        overdue = sum(1 for d in deals if d["overdue"])
+        silent  = sum(1 for d in deals if (d["days_silent"] or 0) > 21)
+
+        meta_parts = [f"{n} deals", _fmt_amount(amt)]
+        if overdue:
+            meta_parts.append(f"{overdue} overdue")
+        if silent:
+            meta_parts.append(f"{silent} silent 21d+")
+
+        lines += [
+            f"*{name}* _({', '.join(meta_parts)})_",
+            row["narrative"],
+            "",
+        ]
+
+    # ── Overdue deals footer ──────────────────────────────────────────────────
+    all_deals = [d for r in ae_narratives for d in r["deals"]]
+    overdue_deals = sorted(
+        [d for d in all_deals if d["overdue"]],
+        key=lambda d: d.get("close_date") or "",
+    )
+    if overdue_deals:
+        lines.append("*⚠️ Overdue Close Dates*")
+        for d in overdue_deals:
+            days_over = abs(d["days_to_close"] or 0)
+            silent_str = f" · {d['days_silent']}d silent" if (d["days_silent"] or 0) > 7 else ""
+            # Strip dollar amounts / plan suffixes from SF opp name for readability
+            short_name = d["name"].split(" | ")[0].strip()
+            lines.append(
+                f"• *{short_name}* ({d['owner_name']}) · {days_over}d overdue"
+                + silent_str
+            )
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def post_to_slack(bot_token: str, text: str):
@@ -639,157 +377,92 @@ def post_to_slack(bot_token: str, text: str):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", default=None,
-                        help="Report date string, e.g. 'April 21, 2026' (default: today)")
-    parser.add_argument("--days", type=int, default=30,
-                        help="Activity lookback window in days (default: 30)")
-    parser.add_argument("--no-synopsis", action="store_true",
-                        help="Skip Claude synopsis generation")
+                        help="Report date string (default: today)")
+    parser.add_argument("--no-post", action="store_true",
+                        help="Print to stdout only, skip Slack post")
     args = parser.parse_args()
 
-    load_dotenv(ENV_PATH)
+    load_dotenv(ENV_PATH, override=True)
 
     today     = date.today()
     date_str  = args.date or today.strftime("%B %-d, %Y")
-    days      = args.days
     bot_token = os.getenv("SLACK_BOT_TOKEN", "")
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
 
-    print(f"Date: {date_str}  |  Lookback: {days}d")
+    print(f"Date: {date_str}")
 
-    # ── Salesforce setup ──────────────────────────────────────────────────────
+    # ── Salesforce ────────────────────────────────────────────────────────────
     print("Connecting to Salesforce...")
     sf = connect_sf()
 
-    print("Fetching AE roster...")
-    ae_records = fetch_ae_roster(sf)
+    print("Resolving target AEs...")
+    ae_records = fetch_target_aes(sf)
     if not ae_records:
-        print("No AEs found — aborting.")
+        print("No AEs resolved — aborting.")
         return
     ae_ids = [r["Id"] for r in ae_records]
-    print(f"  {len(ae_records)} AE(s): {', '.join(r['Name'] for r in ae_records)}")
+    print(f"  {', '.join(r['Name'] for r in ae_records)}")
 
     print("Fetching open opportunities...")
     opp_records = fetch_open_opps(sf, ae_ids)
-    if not opp_records:
-        print("No open opportunities found.")
-        return
     print(f"  {len(opp_records)} open opp(s)")
 
-    # Collect unique account IDs for batch task fetch
-    account_ids: list[str] = list({
-        r["AccountId"] for r in opp_records if r.get("AccountId")
-    })
+    # Unique account IDs for task queries
+    account_ids = list({r["AccountId"] for r in opp_records if r.get("AccountId")})
 
-    print(f"Fetching SF Tasks for {len(account_ids)} account(s) (last {days}d)...")
-    all_tasks = fetch_recent_tasks(sf, account_ids, days)
+    print(f"Fetching tasks (90d) for {len(account_ids)} accounts...")
+    all_tasks = fetch_recent_tasks(sf, account_ids)
     print(f"  {len(all_tasks)} task(s)")
 
-    # Index tasks by AccountId
     tasks_by_account: dict[str, list] = defaultdict(list)
     for t in all_tasks:
         if t.get("AccountId"):
             tasks_by_account[t["AccountId"]].append(t)
 
-    # ── Gong calls ────────────────────────────────────────────────────────────
-    print(f"Fetching Gong calls (last {days}d)...")
-    now     = datetime.now(tz=timezone.utc)
-    from_dt = now - timedelta(days=days)
-    gong_by_account = fetch_gong_extensive(from_dt, now)
+    # ── Enrich and group by AE ────────────────────────────────────────────────
+    all_deals = enrich_deals(opp_records, tasks_by_account)
+    deals_by_owner: dict[str, list] = defaultdict(list)
+    for d in all_deals:
+        deals_by_owner[d["owner_name"]].append(d)
 
-    # ── Enrich each opportunity ───────────────────────────────────────────────
-    print("Computing scores...")
-    deals: list[dict] = []
+    ae_rows = []
+    for ae in ae_records:
+        name  = ae["Name"]
+        deals = deals_by_owner.get(name, [])
+        print(f"  {name}: {len(deals)} deal(s)")
+        ae_rows.append({"name": name, "deals": deals, "narrative": ""})
 
-    for opp in opp_records:
-        opp_id     = opp["Id"]
-        account_id = opp.get("AccountId") or ""
-        account    = opp.get("Account") or {}
-
-        tasks      = tasks_by_account.get(account_id, [])
-        gong_calls = gong_by_account.get(account_id, [])
-
-        ns_historical = opp.get("Next_Step_Historical__c") or ""
-        ns_history    = parse_next_step_history(ns_historical)
-
-        days_silent = compute_days_since_activity(tasks, gong_calls)
-        m = momentum_score(tasks, gong_calls, ns_history)
-        r = risk_score(days_silent, ns_history, tasks, gong_calls)
-        s = deal_status(m, r)
-
-        deals.append({
-            "id":           opp_id,
-            "name":         opp.get("Name") or "?",
-            "account_id":   account_id,
-            "account_name": account.get("Name") or "?",
-            "tier":         account.get("Account_Tier__c") or "?",
-            "owner_name":   (opp.get("Owner") or {}).get("Name") or "?",
-            "stage":        opp.get("StageName") or "?",
-            "amount":       opp.get("Amount"),
-            "close_date":   opp.get("CloseDate"),
-            "next_step":    opp.get("NextStep"),
-            "ns_history":   ns_history,
-            "tasks":        tasks,
-            "gong_calls":   gong_calls,
-            "days_silent":  days_silent,
-            "momentum":     m,
-            "risk":         r,
-            "status":       s,
-            "synopsis":     None,
-        })
-
-    # Status summary
-    by_status: dict[str, int] = defaultdict(int)
-    for d in deals:
-        by_status[d["status"]] += 1
-    print("  Status breakdown: " + "  ".join(
-        f"{STATUS_EMOJI[k]} {k}: {v}" for k, v in sorted(by_status.items())
-    ))
-
-    # ── Claude synopses for flagged + advancing deals ─────────────────────────
-    # Cap Critical at top 20 soonest close dates to control API cost.
-    # Include all At Risk and Advancing (typically smaller buckets).
-    critical_for_synopsis = sorted(
-        [d for d in deals if d["status"] == STATUS_CRITICAL],
-        key=lambda d: d.get("close_date") or "9999",
-    )[:20]
-    needs_synopsis = critical_for_synopsis + [
-        d for d in deals
-        if d["status"] in (STATUS_AT_RISK, STATUS_ADVANCING)
-    ]
-
-    if needs_synopsis and not args.no_synopsis and anthropic_key:
+    # ── Claude narratives (parallel) ──────────────────────────────────────────
+    if not anthropic_key:
+        print("⚠️  No ANTHROPIC_API_KEY — narratives will be blank", file=sys.stderr)
+        for row in ae_rows:
+            row["narrative"] = "(narrative unavailable — no API key)"
+    else:
         import anthropic
         client = anthropic.Anthropic(api_key=anthropic_key)
-        print(f"Generating {len(needs_synopsis)} Claude synopsis(es)...")
+        print(f"Generating {len(ae_rows)} narrative(s)...")
 
-        def _gen(deal):
-            deal["synopsis"] = generate_synopsis(deal, client)
-            return deal["name"]
+        def _gen(row):
+            row["narrative"] = generate_ae_narrative(row["name"], row["deals"], client)
+            return row["name"]
 
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {pool.submit(_gen, d): d["name"] for d in needs_synopsis}
+            futures = {pool.submit(_gen, row): row["name"] for row in ae_rows}
             for fut in as_completed(futures):
                 try:
-                    name = fut.result()
-                    print(f"  ✓ {name}")
+                    print(f"  ✓ {fut.result()}")
                 except Exception as e:
                     print(f"  ✗ {futures[fut]}: {e}", file=sys.stderr)
-    elif args.no_synopsis:
-        print("Synopsis generation skipped (--no-synopsis)")
-    else:
-        print("⚠️  No ANTHROPIC_API_KEY — skipping synopses", file=sys.stderr)
 
-    # ── Build + post ─────────────────────────────────────────────────────────
-    message = build_message(deals, date_str)
+    # ── Build + post ──────────────────────────────────────────────────────────
+    message = build_message(ae_rows, date_str)
+    print("\n" + message)
 
-    print("\n--- Slack preview (first 800 chars) ---")
-    print(message[:800])
-    print("---")
-
-    if bot_token:
-        post_to_slack(bot_token, message)
-    else:
-        print("⚠️  No SLACK_BOT_TOKEN — skipping Slack post", file=sys.stderr)
+    if not args.no_post:
+        if bot_token:
+            post_to_slack(bot_token, message)
+        else:
+            print("⚠️  No SLACK_BOT_TOKEN — skipping Slack post", file=sys.stderr)
 
 
 if __name__ == "__main__":
