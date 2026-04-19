@@ -27,7 +27,7 @@ from datetime import date, datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 ENV_PATH      = os.path.join(os.path.dirname(__file__), ".env")
-SLACK_CHANNEL = "#sales-leadership"
+SLACK_CHANNEL = "C0AT5T432KG"   # #sales-leadership — ID is rename-safe
 GONG_BASE     = "https://us-64844.api.gong.io"
 
 # AEs who don't have UserRole = 'Sales - AE' but should be included

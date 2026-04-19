@@ -54,7 +54,7 @@ gcloud run jobs deploy "${JOB_NAME}" \
   --command="python3" \
   --args="ai_digest_run.py" \
   --set-secrets="ANTHROPIC_API_KEY=pen-anthropic-key:latest,SLACK_BOT_TOKEN=pen-slack-bot-token:latest,TWITTER_API_KEY=digest-twitter-api-key:latest,LINKEDIN_RAPIDAPI_KEY=digest-linkedin-rapidapi-key:latest,YOUCOM_API_KEY=digest-youcom-api-key:latest" \
-  --set-env-vars="SLACK_CHANNEL_AI_DIGEST=#daily-digest" \
+  --set-env-vars="SLACK_CHANNEL_AI_DIGEST=daily-digest" \
   --max-retries 1 \
   --task-timeout 10m \
   --project="${PROJECT_ID}" \

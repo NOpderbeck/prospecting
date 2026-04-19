@@ -2,9 +2,9 @@
 """
 ai_digest_run.py — Daily AI Trends Digest
 
-Collects signals from X (TwitterAPI.io), LinkedIn (RapidAPI Fresh LinkedIn Scraper),
-and You.com news. Scores and normalizes them, synthesizes insights + competitive
-intelligence via Claude, and posts a structured digest to #daily-digest.
+Collects signals from X (TwitterAPI.io), Reddit (SteadyAPI), and You.com news. Scores and normalizes them, synthesizes
+insights + competitive intelligence via Claude, and posts a structured digest
+to #daily-digest.
 
 Usage:
     python ai_digest_run.py                        # today, post to Slack
@@ -15,10 +15,9 @@ Environment (required):
     ANTHROPIC_API_KEY          Claude API
     SLACK_BOT_TOKEN            Slack bot token (xoxb-...)
     TWITTER_API_KEY            TwitterAPI.io access token
-    LINKEDIN_RAPIDAPI_KEY      RapidAPI key for Fresh LinkedIn Scraper
 
 Environment (optional):
-    YOUCOM_API_KEY             You.com search (enables news collection)
+    STEADYAPI_KEY              SteadyAPI (enables Reddit collection)
     SLACK_CHANNEL_AI_DIGEST    Override default channel (default: #daily-digest)
 """
 
@@ -41,11 +40,9 @@ from dotenv import load_dotenv
 
 ENV_PATH     = Path(__file__).parent / ".env"
 REPORTS_DIR  = Path(__file__).parent / "reports" / "ai_digest"
-SLACK_CHANNEL_DEFAULT = "#daily-digest"
+SLACK_CHANNEL_DEFAULT = "daily-digest"
 
 TWITTER_BASE  = "https://api.twitterapi.io/twitter/tweet/advanced_search"
-LINKEDIN_BASE = "https://fresh-linkedin-scraper-api.p.rapidapi.com/api/v1/search/posts"
-YOUCOM_BASE   = "https://api.you.com/v1/search"
 
 TOP_N        = 40   # signals passed to Claude
 MAX_SOURCES  = 8    # URLs shown in digest
@@ -75,42 +72,58 @@ CONTEXT_PATTERNS: list[tuple[str, list[str]]] = [
 # ── Query sets ────────────────────────────────────────────────────────────────
 
 TWITTER_QUERIES: list[str] = [
-    # General AI/search trends
-    '"AI search"',
-    '"agent search"',
-    '"search API" agent',
+    # Broad AI / agent trends (primary — 9 queries)
+    '"AI agents"',
+    '"agentic AI"',
     '"AI retrieval"',
-    '"web agents"',
-    '"agentic search"',
-    # Competitor-specific
-    "Tavily",
-    '"Exa AI" OR exa.ai',
-    '"Parallel Web"',
-    '"Nimble AI"',
-    '"LinkUp AI"',
-    # Cross-signals
-    '"search API" benchmark',
+    '"search API"',
+    '"real-time search" AI',
+    '"grounded AI" OR "grounding"',
+    '"RAG" production',
+    '"AI infrastructure"',
+    '"web search" agents',
+    # Competitor monitoring (secondary — 2 queries, intelligence only)
+    'Tavily OR "Exa AI"',
+    '"Parallel Web" OR "LinkUp AI" OR "Nimble AI"',
 ]
 
-LINKEDIN_KEYWORDS: list[str] = [
+# Influential accounts to monitor — batched into groups of 5 to reduce API calls
+# Each group becomes one from:a OR from:b OR ... query
+TWITTER_ACCOUNTS: list[list[str]] = [
+    # AI leaders / researchers
+    ["sama", "demishassabis", "karpathy", "ylecun", "drfeifei"],
+    ["AndrewYNg", "ID_AA_Carmack", "jasonwei", "lilianweng", "rasbt"],
+    # Builders / practitioners / creators
+    ["OfficialLoganK", "mattshumer", "alliekmiller", "rowancheung", "antgrasso"],
+    ["swyx", "levelsio", "erikbryn", "bernardmarr", "noellerussell"],
+    # Competitors + adjacent companies
+    ["perplexity_ai", "ExaAILabs", "tavilyai", "parallelweb", "nimble_ai"],
+    # AI orgs
+    ["youdotcom", "OpenAI", "AnthropicAI", "GoogleDeepMind", "MetaAI"],
+    # AI ecosystem
+    ["MistralAI_", "cohere", "huggingface", "LangChainAI", "llama_index", "togethercompute"],
+]
+
+# Reddit: keyword searches (cross-subreddit, last 24h)
+REDDIT_SEARCHES: list[str] = [
     "AI search API",
-    "agent search",
     "agentic search",
+    "AI retrieval",
+    "search API agents",
     "Tavily",
     "Exa AI",
-    "Parallel Web",
-    "Nimble AI",
-    "LinkUp AI",
-    "search API agents",
-    "AI retrieval benchmark",
 ]
 
-YOUCOM_QUERIES: list[str] = [
-    "AI search API news 2026",
-    "Tavily OR Exa AI OR Parallel Web AI 2026",
-    "agentic search infrastructure 2026",
-    "web search API developer tools 2026",
+# Reddit: high-signal subreddits to pull top daily posts from
+REDDIT_SUBREDDITS: list[str] = [
+    "LocalLLaMA",
+    "artificial",
+    "LangChain",
+    "MachineLearning",
+    "ChatGPT",
 ]
+
+STEADYAPI_BASE = "https://api.steadyapi.com"
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -120,11 +133,10 @@ def load_config() -> dict[str, str | None]:
         "anthropic_key":  os.getenv("ANTHROPIC_API_KEY"),
         "slack_token":    os.getenv("SLACK_BOT_TOKEN"),
         "twitter_key":    os.getenv("TWITTER_API_KEY"),
-        "linkedin_key":   os.getenv("LINKEDIN_RAPIDAPI_KEY"),
-        "youcom_key":     os.getenv("YOUCOM_API_KEY"),
+        "steadyapi_key":  os.getenv("STEADYAPI_KEY"),
         "slack_channel":  os.getenv("SLACK_CHANNEL_AI_DIGEST", SLACK_CHANNEL_DEFAULT),
     }
-    required = ["anthropic_key", "slack_token", "twitter_key", "linkedin_key"]
+    required = ["anthropic_key", "slack_token", "twitter_key"]
     missing = [k for k in required if not config[k]]
     if missing:
         print(f"❌ Missing required env vars: {missing}", file=sys.stderr)
@@ -152,21 +164,20 @@ def detect_context_type(text: str) -> str:
 # ── Collectors ────────────────────────────────────────────────────────────────
 
 def collect_twitter(api_key: str, since_ts: int, until_ts: int) -> list[dict]:
-    """Fetch recent tweets across all query terms (last 24h window)."""
+    """Fetch recent tweets across all query terms and named accounts (last 24h window)."""
     headers = {"X-API-Key": api_key}
     seen_ids: set[str] = set()
     items: list[dict] = []
 
-    for query_base in TWITTER_QUERIES:
-        query = f"{query_base} since_time:{since_ts} until_time:{until_ts}"
-        params: dict[str, str] = {"query": query, "queryType": "Latest", "cursor": ""}
+    def _fetch_query(query_str: str, raw_query: str) -> None:
+        params: dict[str, str] = {"query": query_str, "queryType": "Latest", "cursor": ""}
         try:
             resp = requests.get(TWITTER_BASE, headers=headers, params=params, timeout=15)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"  ⚠️  Twitter ({query_base!r}): {e}", file=sys.stderr)
-            continue
+            print(f"  ⚠️  Twitter ({raw_query!r}): {e}", file=sys.stderr)
+            return
 
         for tweet in data.get("tweets", []):
             tid = str(tweet.get("id", ""))
@@ -190,124 +201,108 @@ def collect_twitter(api_key: str, since_ts: int, until_ts: int) -> list[dict]:
                 "author_context": f"@{author.get('userName', '')}",
                 "created_at":   tweet.get("createdAt", ""),
                 "engagement":   engagement,
-                "raw_query":    query_base,
+                "raw_query":    raw_query,
             })
 
         time.sleep(0.3)
+
+    # Pass 1: keyword / topic queries
+    for query_base in TWITTER_QUERIES:
+        query = f"{query_base} since_time:{since_ts} until_time:{until_ts}"
+        _fetch_query(query, query_base)
+
+    # Pass 2: named influential accounts (batched — one API call per group)
+    for account_group in TWITTER_ACCOUNTS:
+        from_clause = " OR ".join(f"from:{a}" for a in account_group)
+        query = f"({from_clause}) since_time:{since_ts} until_time:{until_ts}"
+        # Label with first account in the group for diversity-cap bucketing
+        raw_query = f"accounts:{account_group[0]}"
+        _fetch_query(query, raw_query)
 
     print(f"  Twitter:  {len(items)} unique tweets")
     return items
 
 
-def collect_linkedin(api_key: str) -> list[dict]:
-    """Fetch LinkedIn posts from the last 24h across all keyword terms."""
-    headers = {
-        "x-rapidapi-key":  api_key,
-        "x-rapidapi-host": "fresh-linkedin-scraper-api.p.rapidapi.com",
-    }
+def collect_reddit(api_key: str | None) -> list[dict]:
+    """Collect Reddit posts via SteadyAPI — keyword searches + targeted subreddits."""
+    if not api_key:
+        print("  Reddit:   skipped (STEADYAPI_KEY not set)")
+        return []
+
+    headers = {"Authorization": f"Bearer {api_key}"}
     seen_ids: set[str] = set()
     items: list[dict] = []
 
-    for keyword in LINKEDIN_KEYWORDS:
-        params: dict[str, Any] = {
-            "keyword":     keyword,
-            "date_posted": "past_24h",
-            "sort_by":     "relevance",
-            "limit":       50,
-            "page":        1,
-        }
-        try:
-            resp = requests.get(LINKEDIN_BASE, headers=headers, params=params, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            print(f"  ⚠️  LinkedIn ({keyword!r}): {e}", file=sys.stderr)
-            continue
-
-        for post in data.get("data", []):
-            pid = str(post.get("id", ""))
+    def _parse_posts(posts: list[dict], raw_query: str) -> None:
+        for post in posts:
+            pid = post.get("name", "")  # e.g. "t3_abc123"
             if not pid or pid in seen_ids:
                 continue
             seen_ids.add(pid)
 
-            author   = post.get("author", {})
-            activity = post.get("activity", {})
-            engagement = (
-                activity.get("likes", 0)
-                + activity.get("comments", 0)
-                + activity.get("shares", 0)
-            )
-            # author.description is their LinkedIn headline — useful for
-            # inferring their role/company context even when post title is sparse
-            author_ctx = author.get("description", "")
-            title = post.get("title", "")
+            title    = post.get("title", "")
+            selftext = post.get("selftext", "") or ""
+            # Combine title + first 600 chars of body for richer detection
+            full_text = f"{title}. {selftext[:600]}".strip(". ")
+
+            score    = post.get("score", 0) or 0
+            comments = post.get("num_comments", 0) or 0
+            engagement = score + comments
+
+            permalink = post.get("permalink", "")
+            url = f"https://reddit.com{permalink}" if permalink else ""
 
             items.append({
-                "id":           pid,
-                "source":       "linkedin",
-                "url":          post.get("url", ""),
-                "text":         title,
-                # Concatenate author headline for competitor/context detection
-                # (not shown in digest output, used only for scoring)
-                "_detect_text": f"{title} {author_ctx}".strip(),
-                "author":       author.get("name", ""),
-                "author_context": author_ctx,
-                "created_at":   str(post.get("created_at", "")),
-                "engagement":   engagement,
-                "raw_query":    keyword,
+                "id":             pid,
+                "source":         "reddit",
+                "url":            url,
+                "text":           full_text,
+                "author":         post.get("author", ""),
+                "author_context": f"r/{post.get('subreddit', '')}",
+                "created_at":     str(post.get("created", "")),
+                "engagement":     engagement,
+                "raw_query":      raw_query,
             })
 
+    # 1. Keyword searches (cross-subreddit, last 24h, top posts)
+    for search_term in REDDIT_SEARCHES:
+        params: dict[str, Any] = {
+            "search":     search_term,
+            "timeFilter": "day",
+            "sortType":   "top",
+            "limit":      25,
+        }
+        try:
+            resp = requests.get(
+                f"{STEADYAPI_BASE}/v1/reddit/search",
+                headers=headers, params=params, timeout=15,
+            )
+            resp.raise_for_status()
+            _parse_posts(resp.json().get("body", []), search_term)
+        except Exception as e:
+            print(f"  ⚠️  Reddit search ({search_term!r}): {e}", file=sys.stderr)
         time.sleep(0.3)
 
-    print(f"  LinkedIn: {len(items)} unique posts")
-    return items
-
-
-def collect_news(api_key: str | None) -> list[dict]:
-    """Fetch news snippets via You.com search."""
-    if not api_key:
-        print("  News:     skipped (YOUCOM_API_KEY not set)")
-        return []
-
-    headers = {"X-API-Key": api_key}
-    seen_urls: set[str] = set()
-    items: list[dict] = []
-
-    for query in YOUCOM_QUERIES:
-        params: dict[str, Any] = {"query": query, "num_web_results": 10}
+    # 2. Top daily posts from high-signal subreddits
+    for subreddit in REDDIT_SUBREDDITS:
+        params = {
+            "subreddit":  subreddit,
+            "timeFilter": "day",
+            "sortType":   "top",
+            "limit":      25,
+        }
         try:
-            resp = requests.get(YOUCOM_BASE, headers=headers, params=params, timeout=15)
+            resp = requests.get(
+                f"{STEADYAPI_BASE}/v1/reddit/posts",
+                headers=headers, params=params, timeout=15,
+            )
             resp.raise_for_status()
-            data = resp.json()
+            _parse_posts(resp.json().get("body", []), f"r/{subreddit}")
         except Exception as e:
-            print(f"  ⚠️  News ({query!r}): {e}", file=sys.stderr)
-            continue
+            print(f"  ⚠️  Reddit r/{subreddit}: {e}", file=sys.stderr)
+        time.sleep(0.3)
 
-        for result in data.get("web", {}).get("results", []):
-            url = result.get("url", "")
-            if not url or url in seen_urls:
-                continue
-            seen_urls.add(url)
-
-            title   = result.get("title", "")
-            snippet = result.get("description", "")
-            text    = f"{title}. {snippet}".strip(". ")
-
-            items.append({
-                "id":           url,
-                "source":       "news",
-                "url":          url,
-                "text":         text,
-                "author":       result.get("source", ""),
-                "author_context": "",
-                "created_at":   "",
-                "engagement":   0,
-                "raw_query":    query,
-            })
-
-        time.sleep(0.2)
-
-    print(f"  News:     {len(items)} unique articles")
+    print(f"  Reddit:   {len(items)} unique posts")
     return items
 
 # ── Normalize + score ─────────────────────────────────────────────────────────
@@ -321,16 +316,9 @@ def normalize(item: dict) -> dict:
     engagement  = item["engagement"]
     score       = math.log1p(engagement)
 
-    # Competitor relevance boosts
-    n = len(competitors)
-    if n >= 2:
-        score *= 1.3
-    elif n == 1:
-        score *= 1.2
-
-    # Context quality boosts
+    # Context quality boosts — reward signals that carry substantive insight
     if context_type in ("comparison", "benchmark"):
-        score *= 1.4
+        score *= 1.2
     elif context_type == "product_launch":
         score *= 1.1
 
@@ -373,19 +361,41 @@ def select_top_signals(signals: list[dict], n: int = TOP_N) -> list[dict]:
 # ── Synthesis ─────────────────────────────────────────────────────────────────
 
 SYNTHESIS_SYSTEM = """\
-You are an AI market analyst covering the AI search, retrieval, and agent infrastructure space.
-Your audience is a sales leader at You.com — a company that sells a Search API used by AI agents
-and enterprise applications.
+You are a thought leadership writer for a senior sales leader at You.com.
+You.com sells a Search API that AI agents and enterprise applications use to access
+real-time, grounded web information. The API enables agents to search, retrieve,
+and reason over current information — solving hallucination, staleness, and
+knowledge-gap problems.
 
-Tracked competitors: Tavily, Exa, Parallel Web, Nimble, LinkUp.
+Your job is to produce a daily digest that:
+1. Identifies meaningful trends in how AI is being built and deployed
+2. Connects those trends to the problems You.com's Search API solves
+3. Positions the reader as a knowledgeable, forward-thinking voice in the space
 
-## Rules
-- Synthesize patterns across sources — do NOT list news items or recap individual posts
-- Only mention competitors when they appear in multiple signals OR are part of a meaningful comparison
-- When competitors appear together, explain HOW they are compared and what that implies about the market
-- Identify implicit positioning shifts carefully — never overclaim or speculate beyond the signals
-- Write as someone who deeply understands search infrastructure and AI agent architecture
-- Suggested posts must feel like an operator's perspective: opinionated, specific, not generic AI commentary
+## Core rules
+
+**Trends first, competitors last.**
+The digest is primarily about what is happening in AI — agent architectures,
+enterprise adoption patterns, developer workflows, infrastructure shifts.
+Competitor mentions are strictly secondary intelligence, included only when
+a competitor appears in multiple signals or signals a meaningful market shift.
+
+**Never frame search APIs as commodities.**
+Do not write anything that argues search retrieval is interchangeable, race-to-zero,
+or undifferentiated. You.com's API has distinct value: real-time grounding, citation
+quality, accuracy in agent reasoning loops, and enterprise reliability. The post
+suggestions must reinforce this value, not undermine it.
+
+**Posts must be constructive, not reactive.**
+Suggested LinkedIn and X posts should be about a trend the reader finds genuinely
+interesting and can speak to from an operator's perspective. They should NOT be
+about competitors, NOT frame a problem without a solution, and NOT imply the
+reader's market is broken or commoditized.
+
+**Synthesis over summary.**
+Do not list news. Identify patterns across signals and explain what they mean
+for how AI systems are being built — and how search APIs are increasingly central
+to that infrastructure.
 
 ## Output format
 Return a single valid JSON object with exactly these keys:
@@ -403,20 +413,49 @@ Return a single valid JSON object with exactly these keys:
 }
 
 ## Paragraph guide (summary_paragraphs)
-Write 3 paragraphs (4 only if a clear strategic takeaway exists for You.com):
-  1. Major trend observed across sources today
-  2. Competitive dynamic — only if competitors appeared meaningfully; omit if not
-  3. Market implication: what does this suggest about where the space is heading?
-  4. (optional) Strategic takeaway specific to You.com's positioning
+Write 3 paragraphs:
+  1. The dominant trend in AI building/deployment today — what practitioners are
+     talking about, what problems they are encountering, what they are trying to build
+  2. Why real-time search and retrieval is central to solving these problems —
+     grounding agents in current information, reducing hallucinations, enabling
+     accurate multi-step reasoning. Ground this in specific signals from today.
+  3. Where this is heading — what this means for how enterprise AI will be built,
+     and why search infrastructure that is accurate, citable, and reliable will
+     be foundational (not optional) in these systems
 
 ## competitive_mentions
-Only include competitors that genuinely appeared in meaningful signals.
-Omit those with no real signal today — do not force mentions.
+Only include if a competitor appeared in multiple independent signals today
+or made a move that signals a genuine market shift worth tracking.
+If no competitor had meaningful signal, return an empty array.
 
 ## Suggested posts
-- linkedin_post: Opinionated, ties trend + competitive context, positions author as a practitioner
-  not a commentator. Use concrete details from the signals.
-- x_post: Sharp, insight-driven, ≤280 chars. One clear point.
+Both posts should follow this structure:
+  - Open with an observation about a real trend from today's signals
+  - Explain why it matters to people building AI systems
+  - Show how real-time, grounded search is part of the answer
+  - Close with a point of view — not a question, not a call to action
+
+**linkedin_post**: 150–250 words. Specific, practitioner-voiced, forward-looking.
+  Formatting rules (strictly enforced):
+  - Line 1 must be a short, punchy hook that stands alone above the fold.
+    It should be a bold observation or a surprising reframe — one or two sentences max.
+    Example pattern: "Most [X] aren't [expected cause]. They're [real cause]. [emoji]"
+  - Add 3–5 emojis placed naturally at the end of key sentences or paragraphs.
+    Do not cluster emojis together. Use them to punctuate a point, not decorate.
+  - Never use em dashes (— or --). Use a colon, comma, or new sentence instead.
+  - Do NOT mention competitors.
+  - Do NOT use the word "commodity" or imply the API market is undifferentiated.
+  - Do NOT end with a question.
+  - NEVER cite individual posts, users, or anecdotes from the signals (e.g. "one builder
+    documented...", "a practitioner wrote..."). The post will be published without sources
+    on LinkedIn and anonymous anecdotes read as unverified gossip. Instead, generalize
+    signals into broader trend statements (e.g. "Developers are increasingly reporting...",
+    "Teams building production agents are finding...", "The pattern emerging across the
+    community is..."). The insight should feel like an informed operator's observation,
+    not a summary of something you read.
+
+**x_post**: ≤280 chars. One sharp, specific insight about the trend.
+  No em dashes. Should make the reader think, not restate the obvious.
 
 ## top_source_urls
 Pick up to 8 of the most credible/relevant URLs from the provided signals.
@@ -441,8 +480,8 @@ def synthesize(signals: list[dict], client: anthropic.Anthropic, run_date: date)
 
     user_msg = (
         f"Date: {run_date.isoformat()}\n\n"
-        f"Here are the top {len(signal_data)} signals collected today from X, LinkedIn, "
-        f"and news sources:\n\n"
+        f"Here are the top {len(signal_data)} signals collected today from X (Twitter) "
+        f"and Reddit:\n\n"
         f"{json.dumps(signal_data, indent=2)}\n\n"
         "Produce the daily digest JSON as specified."
     )
@@ -576,8 +615,7 @@ def main() -> None:
     print("\n📡 Collecting signals...")
     raw: list[dict] = []
     raw.extend(collect_twitter(config["twitter_key"], since_ts, until_ts))  # type: ignore[arg-type]
-    raw.extend(collect_linkedin(config["linkedin_key"]))                     # type: ignore[arg-type]
-    raw.extend(collect_news(config["youcom_key"]))
+    raw.extend(collect_reddit(config["steadyapi_key"]))
     print(f"  Total raw: {len(raw)}")
 
     if not raw:

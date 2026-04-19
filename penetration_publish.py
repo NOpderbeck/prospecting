@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 ENV_PATH          = os.path.join(os.path.dirname(__file__), ".env")
 GOOGLE_TOKEN_PATH = os.path.join(os.path.dirname(__file__), ".credentials", "google_token_penetration.json")
 DRIVE_FOLDER_ID   = "1gujAtCzSVHZQtNbvH33Js0k-Oqjtr7V8"
-SLACK_CHANNEL     = "#sales-target-alerts"
+SLACK_CHANNEL     = "C0AT4Q506Q2"   # #sales-target-alerts — ID is rename-safe
 GOOGLE_SCOPES     = ["https://www.googleapis.com/auth/drive"]
 
 TABLE_HEADERS    = ["Account", "Classification", "Score", "Owner", "API (30d)", "Last API Call", "Last Touch"]
@@ -40,16 +40,7 @@ def get_google_creds(creds_file: str):
             sa_key, scopes=GOOGLE_SCOPES
         )
 
-    # ── Application Default Credentials (Cloud Run attached SA, gcloud ADC) ──
-    try:
-        import google.auth
-        creds, _ = google.auth.default(scopes=GOOGLE_SCOPES)
-        print("  Using Application Default Credentials", file=sys.stderr)
-        return creds
-    except Exception:
-        pass
-
-    # ── OAuth user token (local dev) ──────────────────────────────────────────
+    # ── OAuth user token (local dev — preferred when token file exists) ─────────
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
     from google.auth.transport.requests import Request as GoogleRequest
@@ -69,7 +60,20 @@ def get_google_creds(creds_file: str):
         os.makedirs(os.path.dirname(GOOGLE_TOKEN_PATH), exist_ok=True)
         with open(GOOGLE_TOKEN_PATH, "w") as f:
             f.write(creds.to_json())
-    return creds
+    if creds:
+        return creds
+
+    # ── Application Default Credentials (Cloud Run attached SA, gcloud ADC) ──
+    try:
+        import google.auth
+        creds, _ = google.auth.default(scopes=GOOGLE_SCOPES)
+        print("  Using Application Default Credentials", file=sys.stderr)
+        return creds
+    except Exception:
+        pass
+
+    print("ERROR: No Google credentials found", file=sys.stderr)
+    sys.exit(1)
 
 
 # ── Docs helpers ───────────────────────────────────────────────────────────────
@@ -417,6 +421,29 @@ def build_google_doc(docs_svc, doc_id: str, results: list, date_str: str):
     append_table(docs_svc, doc_id, ["Owner", "#", "Accounts"], ws_rows)
     append_segments(docs_svc, doc_id, [S("", N, False)])
 
+    # ── 🔘 Closed Lost — suppressed At Risk ───────────────────────────────────
+    closed_lost = sorted([r for r in prospects if r['cls'] == 'Closed Lost'], key=lambda x: -x['pen'])
+    if closed_lost:
+        cl_rows = []
+        for r in closed_lost:
+            cl_name = r.get("closed_lost_name") or "—"
+            cl_date = r.get("closed_lost_date") or "—"
+            cl_rows.append([r['name'], r['owner'], cl_name, cl_date,
+                             f"{r.get('total_30d',0):,} calls"])
+        append_segments(docs_svc, doc_id, [
+            S(f"🔘  Closed Lost — {len(closed_lost)} Account(s)", H2, False),
+            S(
+                "These accounts showed dormant API usage but have a recent Closed Lost opportunity "
+                "that explains the drop-off. Suppressed from At Risk alerts.",
+                N, False,
+            ),
+            S("", N, False),
+        ])
+        append_table(docs_svc, doc_id,
+                     ["Account", "Owner", "Lost Opp", "Close Date", "API (30d)"],
+                     cl_rows)
+        append_segments(docs_svc, doc_id, [S("", N, False)])
+
     # ── 💰 Customers ───────────────────────────────────────────────────────────
     print(f"  Writing Customers table ({len(customers)} rows)...", file=sys.stderr)
     cust_headers = ["Account", "Owner", "API (30d)", "Active Users"]
@@ -663,12 +690,39 @@ def create_google_doc(creds, title: str, results: list, date_str: str) -> str:
 
 # ── Slack ──────────────────────────────────────────────────────────────────────
 
+_slack_id_cache: dict[str, str | None] = {}
+
+
+def resolve_slack_id(token: str, email: str) -> str | None:
+    """Look up a Slack user ID by email. Returns the user ID string or None."""
+    if not token or not email:
+        return None
+    if email in _slack_id_cache:
+        return _slack_id_cache[email]
+    resp = req_lib.get(
+        "https://slack.com/api/users.lookupByEmail",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"email": email},
+        timeout=10,
+    )
+    r = resp.json()
+    uid = r["user"]["id"] if r.get("ok") else None
+    _slack_id_cache[email] = uid
+    return uid
+
+
+def owner_mention(token: str, owner_email: str, owner_name: str) -> str:
+    """Return <@USERID> if resolvable, else plain owner name."""
+    uid = resolve_slack_id(token, owner_email)
+    return f"<@{uid}>" if uid else owner_name
+
+
 def _bar(pct: float, width: int = 20) -> str:
     filled = round(pct / 100 * width)
     return "█" * filled + "░" * (width - filled)
 
 
-def build_slack_message(results: list, date_str: str, doc_url: str) -> str:
+def build_slack_message(results: list, date_str: str, doc_url: str, token: str = "") -> str:
     customers = [r for r in results if r["is_customer"]]
     prospects = [r for r in results if not r["is_customer"]]
     total     = len(results)
@@ -685,7 +739,10 @@ def build_slack_message(results: list, date_str: str, doc_url: str) -> str:
 
     inbound = [r for r in prospects if r["cls"] == "Inbound Only"]
     white   = [r for r in prospects if r["cls"] == "White Space"]
-    inbound_links = ", ".join(f"<{SF_BASE}{r['id']}|{r['name']}> ({r['owner']})" for r in inbound)
+    inbound_links = ", ".join(
+        f"<{SF_BASE}{r['id']}|{r['name']}> ({owner_mention(token, r.get('owner_email',''), r['owner'])})"
+        for r in inbound
+    )
 
     lines = [
         f"*📊 Penetration Intelligence — {date_str}*",
@@ -704,17 +761,24 @@ def build_slack_message(results: list, date_str: str, doc_url: str) -> str:
     alerts = []
     if inbound:
         alerts.append(f"• {len(inbound)} with usage + zero sales activity → uncovered demand: _{inbound_links}_")
-    if white:
-        alerts.append(f"• White Space:  {len(white)} with no footprint at all")
+
+    lines += ["", "", "🚨 *Alerts*"]
     if alerts:
-        lines += ["", "", "🚨 *Alerts*"] + alerts
+        lines += alerts
+    else:
+        lines.append("• No alerts this period")
 
     lines += ["", "", f"📄 *<{doc_url}|Full Report>*"]
     return "\n".join(lines)
 
 
-def post_to_slack(token: str, results: list, date_str: str, doc_url: str):
-    text = build_slack_message(results, date_str, doc_url)
+def post_to_slack(token: str, results: list, date_str: str, doc_url: str, dry_run: bool = False):
+    text = build_slack_message(results, date_str, doc_url, token=token)
+    if dry_run:
+        print("\n── DRY RUN: Slack message (not posted) ──────────────────────────")
+        print(text)
+        print("─────────────────────────────────────────────────────────────────\n")
+        return
     resp = req_lib.post(
         "https://slack.com/api/chat.postMessage",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -734,6 +798,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results-file", required=True)
     parser.add_argument("--date",         required=True)
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print Slack message to stdout; skip Google Doc creation and Slack post")
     args = parser.parse_args()
 
     load_dotenv(ENV_PATH)
@@ -745,7 +811,44 @@ def main():
         sys.exit(1)
 
     results = json.load(open(args.results_file))
+    # Normalize field names produced by digest_run.py vs what this script expects
+    CLS_MAP = {
+        "Inbound Only":        ("Inbound Only",        "red"),
+        "At Risk":             ("At Risk",             "red"),
+        "Outbound Only":       ("Outbound Only",       "orange"),
+        "Early Penetration":   ("Early Penetration",   "orange"),
+        "Multi-Threaded Growth": ("Multi-Threaded Growth", "yellow"),
+        "Strong Penetration":  ("Strong Penetration",  "yellow"),
+        "White Space":         ("White Space",         "white"),
+        "Closed Lost":         ("Closed Lost",         "grey"),
+        "Developing":          ("Developing",          "blue"),
+    }
+    for r in results:
+        if "cls" not in r:
+            raw_cls = r.get("classification", "Developing")
+            cls, pri = CLS_MAP.get(raw_cls, (raw_cls, "blue"))
+            r["cls"] = cls
+            r["pri"] = pri
+        # Alias pen_score → pen
+        if "pen" not in r:
+            r["pen"] = r.get("pen_score", 0)
+        # Alias active_30d → active_30
+        if "active_30" not in r:
+            r["active_30"] = r.get("active_30d", 0)
+        # last_call: not stored as ISO date in digest output; derive from days_usage
+        if "last_call" not in r:
+            days = r.get("days_usage")
+            if days is not None:
+                from datetime import date, timedelta
+                r["last_call"] = (date.today() - timedelta(days=int(days))).isoformat()
+            else:
+                r["last_call"] = None
     reclassify(results)
+
+    if args.dry_run:
+        print("── DRY RUN — no Google Doc or Slack post ──────────────────────", file=sys.stderr)
+        post_to_slack(slack_token, results, args.date, doc_url="<doc-url-not-created>", dry_run=True)
+        return
 
     print("Authenticating with Google...", file=sys.stderr)
     creds = get_google_creds(creds_file)

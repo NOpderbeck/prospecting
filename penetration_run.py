@@ -51,7 +51,7 @@ def fetch_accounts(sf) -> list:
     return soql(sf, """
         SELECT Id, Name, Account_Tier__c, Account_Score__c,
                Total_Revenue_Closed_Won__c, Count_of_Open_Opportunities__c,
-               Owner.Name
+               Owner.Name, Owner.Email
         FROM Account
         WHERE Account_Tier__c IN ('1. TARGET ACCOUNT', 'Tier 1')
         ORDER BY Account_Score__c DESC NULLS LAST
@@ -93,7 +93,18 @@ def enrich_account(sf, acc: dict) -> dict:
     )
     usage_dormant = (days_since_usage is not None and days_since_usage > 30) or total_30d == 0
 
-    # ── 2b. Sales tasks (last 30d) ─────────────────────────────────────────────
+    # ── 2b. Recent Closed Lost opportunities ──────────────────────────────────
+    closed_lost_rows = soql(sf, f"""
+        SELECT Id, Name, CloseDate, Amount
+        FROM Opportunity
+        WHERE AccountId = '{acc_id}'
+        AND StageName = 'Closed Lost'
+        AND CloseDate >= LAST_N_DAYS:180
+        ORDER BY CloseDate DESC
+        LIMIT 1
+    """)
+
+    # ── 2c. Sales tasks (last 30d) ─────────────────────────────────────────────
     task_rows = soql(sf, f"""
         SELECT Type, Subject, ActivityDate, WhoId, Who.Name, Status
         FROM Task
@@ -103,7 +114,7 @@ def enrich_account(sf, acc: dict) -> dict:
         ORDER BY ActivityDate DESC
     """)
 
-    # ── 2c. Meetings / events (last 30d) ───────────────────────────────────────
+    # ── 2d. Meetings / events (last 30d) ───────────────────────────────────────
     event_rows = soql(sf, f"""
         SELECT Subject, ActivityDateTime, WhoId, Who.Name
         FROM Event
@@ -194,10 +205,28 @@ def enrich_account(sf, acc: dict) -> dict:
     # ── Step 5: Classify ───────────────────────────────────────────────────────
     prior_usage = all_time > 0
 
+    # Check if a recent Closed Lost explains dormant usage — if the deal closed
+    # within 90 days of the last API call (or within 90 days of today if no
+    # last_call), the stoppage is explained and should not trigger an alert.
+    closed_lost_opp    = closed_lost_rows[0] if closed_lost_rows else None
+    closed_lost_date   = closed_lost_opp["CloseDate"][:10] if closed_lost_opp else None
+    closed_lost_name   = closed_lost_opp.get("Name", "") if closed_lost_opp else None
+    closed_lost_explains = False
+    if closed_lost_date:
+        anchor = date.fromisoformat(last_call) if last_call else today
+        delta  = abs((date.fromisoformat(closed_lost_date) - anchor).days)
+        closed_lost_explains = delta <= 45
+
     if usage_present and not act_present:
-        cls, pri = "Inbound Only", "red"
+        if closed_lost_explains:
+            cls, pri = "Closed Lost", "grey"
+        else:
+            cls, pri = "Inbound Only", "red"
     elif (usage_dormant and prior_usage) or (activity_stale and usage_present):
-        cls, pri = "At Risk", "red"
+        if closed_lost_explains:
+            cls, pri = "Closed Lost", "grey"
+        else:
+            cls, pri = "At Risk", "red"
     elif not usage_present and act_present:
         cls, pri = "Outbound Only", "orange"
     elif usage_present and act_present and pen < 5:
@@ -215,6 +244,7 @@ def enrich_account(sf, acc: dict) -> dict:
         "id":           acc["Id"],
         "name":         acc["Name"],
         "owner":        (acc.get("Owner") or {}).get("Name", "Unknown"),
+        "owner_email":  (acc.get("Owner") or {}).get("Email", ""),
         "score":        acc.get("Account_Score__c") or 0,
         "open_opps":    int(acc.get("Count_of_Open_Opportunities__c") or 0),
         "is_customer":  (acc.get("Total_Revenue_Closed_Won__c") or 0) > 0,
@@ -238,8 +268,10 @@ def enrich_account(sf, acc: dict) -> dict:
         "as_":          as_,
         "cov":          cov,
         "pen":          pen,
-        "cls":          cls,
-        "pri":          pri,
+        "cls":              cls,
+        "pri":              pri,
+        "closed_lost_date": closed_lost_date,
+        "closed_lost_name": closed_lost_name,
     }
 
 
@@ -250,6 +282,8 @@ def main():
     parser.add_argument("--date",         default=None,
                         help="Report date string, e.g. 'April 22, 2026' (default: today)")
     parser.add_argument("--results-file", default="/tmp/pen_results.json")
+    parser.add_argument("--dry-run",      action="store_true",
+                        help="Pass --dry-run to penetration_publish.py (no Google Doc or Slack post)")
     args = parser.parse_args()
 
     load_dotenv(ENV_PATH)
@@ -281,12 +315,12 @@ def main():
     print(f"\nResults written → {args.results_file}  ({len(results)} accounts)")
 
     print(f"\nPublishing report for '{date_str}'...")
-    proc = subprocess.run(
-        [sys.executable, PUBLISH_SCRIPT,
-         "--results-file", args.results_file,
-         "--date", date_str],
-        cwd=SCRIPT_DIR,
-    )
+    cmd = [sys.executable, PUBLISH_SCRIPT,
+           "--results-file", args.results_file,
+           "--date", date_str]
+    if args.dry_run:
+        cmd.append("--dry-run")
+    proc = subprocess.run(cmd, cwd=SCRIPT_DIR)
     sys.exit(proc.returncode)
 
 
