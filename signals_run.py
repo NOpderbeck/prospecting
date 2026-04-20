@@ -38,7 +38,19 @@ SF_BASE       = "https://ydc.my.salesforce.com/"
 # positives at low volumes (10→20 is noise); the ratio ensures the spike is
 # proportionally meaningful at higher volumes (5000→5800 is growth, not a burst).
 MIN_BURST_DELTA = 500   # minimum absolute increase over weekly average (calls)
-MIN_BURST_RATIO = 2.0   # this week must be ≥ 2× the weekly average
+MIN_BURST_RATIO = 1.75  # this week must be ≥ 1.75× the weekly average
+
+# ── Alert blocklist ────────────────────────────────────────────────────────────
+# Accounts listed here are silently excluded from all signal alerts (new users
+# and usage bursts). Match is case-insensitive substring of Account Name.
+ALERT_BLOCKLIST = [
+    "BytePlus",
+]
+
+
+def is_blocked(account_name: str) -> bool:
+    name_lower = account_name.lower()
+    return any(entry.lower() in name_lower for entry in ALERT_BLOCKLIST)
 
 
 # ── Salesforce ─────────────────────────────────────────────────────────────────
@@ -143,6 +155,8 @@ def detect_bursts(usage_records: list) -> dict:
 
     bursts: dict = {}
     for acc_id, acc in agg.items():
+        if is_blocked(acc["name"]):
+            continue
         total_7d   = acc["total_7d"]
         weekly_avg = acc["total_30d"] / 4
         delta      = total_7d - weekly_avg
@@ -322,6 +336,8 @@ def group_signals(records: list, lookback_cutoff: date) -> dict:
         acc_id    = r.get("Account__c") or r.get("Account__r", {}).get("Id", "")
         acc_ref   = r.get("Account__r") or {}
         acc_name  = acc_ref.get("Name", "Unknown")
+        if is_blocked(acc_name):
+            continue
         owner     = acc_ref.get("Owner") or {}
         email     = r.get("Email__c") or ""
         calls_7d  = int(r.get("API_Calls_Last_7_Days__c") or 0)
@@ -479,14 +495,9 @@ def main():
     today     = date.today()
     date_str  = args.date or today.strftime("%B %-d, %Y")
 
-    # Monday (weekday 0) looks back 3 days to catch Fri/Sat/Sun signals
-    if args.lookback is not None:
-        lookback = args.lookback
-    else:
-        lookback = 3 if today.weekday() == 0 else 1
-
-    lookback_cutoff = today - timedelta(days=lookback)
-    print(f"Date: {date_str}  |  Lookback: {lookback} day(s) (since {lookback_cutoff})")
+    lookback_days   = args.lookback if args.lookback is not None else 1
+    lookback_cutoff = today - timedelta(days=lookback_days)
+    print(f"Date: {date_str}  |  Lookback: {lookback_days} day(s) (since {lookback_cutoff})")
 
     bot_token  = os.getenv("SLACK_BOT_TOKEN", "")
     test_email = os.getenv("TEST_OWNER_EMAIL", "")  # override owner tags for testing

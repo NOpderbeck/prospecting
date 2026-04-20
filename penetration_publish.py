@@ -57,9 +57,17 @@ def get_google_creds(creds_file: str):
                 sys.exit(1)
             flow = InstalledAppFlow.from_client_secrets_file(creds_file, GOOGLE_SCOPES)
             creds = flow.run_local_server(port=0)
-        os.makedirs(os.path.dirname(GOOGLE_TOKEN_PATH), exist_ok=True)
-        with open(GOOGLE_TOKEN_PATH, "w") as f:
-            f.write(creds.to_json())
+        # Write refreshed token — fall back to /tmp if the original path is read-only
+        # (secrets mounted in Cloud Run are read-only volumes)
+        write_path = GOOGLE_TOKEN_PATH
+        try:
+            os.makedirs(os.path.dirname(write_path), exist_ok=True)
+            with open(write_path, "w") as f:
+                f.write(creds.to_json())
+        except OSError:
+            write_path = "/tmp/google_token_penetration.json"
+            with open(write_path, "w") as f:
+                f.write(creds.to_json())
     if creds:
         return creds
 
