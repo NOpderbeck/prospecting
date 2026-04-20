@@ -37,8 +37,12 @@ SF_BASE       = "https://ydc.my.salesforce.com/"
 # Both conditions must be true to fire. The absolute floor prevents false
 # positives at low volumes (10→20 is noise); the ratio ensures the spike is
 # proportionally meaningful at higher volumes (5000→5800 is growth, not a burst).
-MIN_BURST_DELTA = 500   # minimum absolute increase over weekly average (calls)
-MIN_BURST_RATIO = 1.75  # this week must be ≥ 1.75× the weekly average
+MIN_BURST_DELTA    = 500   # minimum absolute increase over weekly average (calls)
+MIN_BURST_RATIO    = 1.75  # this week must be ≥ 1.75× the weekly average
+MIN_UNTIERED_CALLS = 500   # minimum 30d calls for an untiered account to surface
+
+# Tiers already covered by the standard Tier 1 / Tier 2.A scans
+MONITORED_TIERS = {"1. TARGET ACCOUNT", "Tier 1", "2.A", "Tier 2"}
 
 # ── Alert blocklist ────────────────────────────────────────────────────────────
 # Accounts listed here are silently excluded from all signal alerts (new users
@@ -72,12 +76,17 @@ def soql(sf, query: str) -> list:
         return []
 
 
-def fetch_new_users(sf, lookback_cutoff: date) -> list:
+TIER1_FILTER = "('1. TARGET ACCOUNT', 'Tier 1')"
+TIER2_FILTER = "('2.A', 'Tier 2')"
+ALL_TIERS_FILTER = "('1. TARGET ACCOUNT', 'Tier 1', '2.A', 'Tier 2')"
+
+
+def fetch_new_users(sf, lookback_cutoff: date, tier_filter: str = TIER1_FILTER) -> list:
     """
-    Return all Product_User__c records on Tier 1 accounts created on or after
-    the lookback_cutoff date (midnight UTC). Uses an explicit calendar-date
-    boundary instead of LAST_N_DAYS so consecutive daily runs never overlap —
-    a user created on Tuesday is reported Tuesday and never again on Wednesday.
+    Return all Product_User__c records on accounts of the given tier(s) created
+    on or after the lookback_cutoff date (midnight UTC). Uses an explicit
+    calendar-date boundary instead of LAST_N_DAYS so consecutive daily runs
+    never overlap — a user created on Tuesday is reported Tuesday and never again.
     """
     since = lookback_cutoff.strftime("%Y-%m-%dT00:00:00Z")
     return soql(sf, f"""
@@ -92,19 +101,19 @@ def fetch_new_users(sf, lookback_cutoff: date) -> list:
                Account__r.Owner.Name,
                Account__r.Owner.Email
         FROM Product_User__c
-        WHERE Account__r.Account_Tier__c IN ('1. TARGET ACCOUNT', 'Tier 1')
+        WHERE Account__r.Account_Tier__c IN {tier_filter}
         AND CreatedDate >= {since}
         ORDER BY Account__r.Name, CreatedDate DESC
     """)
 
 
-def fetch_all_usage(sf) -> list:
+def fetch_all_usage(sf, tier_filter: str = TIER1_FILTER) -> list:
     """
     Return API_Calls_Last_7_Days__c and API_Calls_Last_30_Days__c for every
-    Product_User__c on a Tier 1 account. Used to detect account-level bursts
-    independent of whether the user is new.
+    Product_User__c on accounts of the given tier(s). Used to detect
+    account-level bursts independent of whether the user is new.
     """
-    return soql(sf, """
+    return soql(sf, f"""
         SELECT Account__c,
                Account__r.Name,
                Account__r.Id,
@@ -113,7 +122,7 @@ def fetch_all_usage(sf) -> list:
                API_Calls_Last_7_Days__c,
                API_Calls_Last_30_Days__c
         FROM Product_User__c
-        WHERE Account__r.Account_Tier__c IN ('1. TARGET ACCOUNT', 'Tier 1')
+        WHERE Account__r.Account_Tier__c IN {tier_filter}
         ORDER BY Account__r.Name
     """)
 
@@ -174,6 +183,154 @@ def detect_bursts(usage_records: list) -> dict:
             }
 
     return bursts
+
+
+def fetch_untiered_usage(sf) -> list:
+    """
+    Return all Product_User__c records with any 30-day activity, regardless of
+    account tier. Filtering by > 0 calls keeps the result set manageable.
+    Tier exclusion is handled in Python (detect_untiered) so we can also catch
+    accounts with a null or unrecognised tier value.
+    """
+    return soql(sf, """
+        SELECT Account__c,
+               Account__r.Name,
+               Account__r.Id,
+               Account__r.Account_Tier__c,
+               Account__r.Owner.Name,
+               Account__r.Owner.Email,
+               API_Calls_Last_7_Days__c,
+               API_Calls_Last_30_Days__c,
+               API_Calls_per_User_All_Time__c
+        FROM Product_User__c
+        WHERE API_Calls_Last_30_Days__c > 0
+        ORDER BY Account__r.Name
+    """)
+
+
+def detect_untiered(usage_records: list, sf=None) -> list:
+    """
+    Aggregate usage by account, exclude accounts already covered by Tier 1 / 2.A
+    scans (MONITORED_TIERS), apply MIN_UNTIERED_CALLS floor, exclude customers
+    (Total_Revenue_Closed_Won__c > 0), and return a list sorted by total_30d desc.
+
+    Pass `sf` (a live Salesforce connection) to enable customer exclusion. If sf
+    is None, the customer filter is skipped (degraded mode — all accounts shown).
+
+    Returns:
+    [
+      {
+        'name':         str,
+        'sf_id':        str,
+        'tier':         str,   # raw tier value or '—' if null
+        'owner_name':   str,
+        'owner_email':  str,
+        'total_7d':     int,
+        'total_30d':    int,
+        'total_alltime':int,
+        'active_users': int,
+        'weekly_avg':   float,
+        'is_customer':  bool,
+      }, ...
+    ]
+    """
+    agg: dict = {}
+    for r in usage_records:
+        acc_ref = r.get("Account__r") or {}
+        acc_id  = r.get("Account__c") or acc_ref.get("Id", "")
+        tier    = acc_ref.get("Account_Tier__c") or ""
+
+        if not acc_id:
+            continue
+        if tier in MONITORED_TIERS:
+            continue
+
+        if acc_id not in agg:
+            agg[acc_id] = {
+                "name":         acc_ref.get("Name", "Unknown"),
+                "sf_id":        acc_ref.get("Id", acc_id),
+                "tier":         tier or "—",
+                "owner_name":   (acc_ref.get("Owner") or {}).get("Name", ""),
+                "owner_email":  (acc_ref.get("Owner") or {}).get("Email", ""),
+                "total_7d":     0,
+                "total_30d":    0,
+                "total_alltime": 0,
+                "active_users": 0,
+            }
+        agg[acc_id]["total_7d"]       += int(r.get("API_Calls_Last_7_Days__c")       or 0)
+        agg[acc_id]["total_30d"]      += int(r.get("API_Calls_Last_30_Days__c")      or 0)
+        agg[acc_id]["total_alltime"]  += int(r.get("API_Calls_per_User_All_Time__c") or 0)
+        agg[acc_id]["active_users"]   += 1
+
+    # Apply threshold + blocklist before the customer lookup to keep the
+    # batch query small — no point fetching revenue data for low-volume accounts.
+    candidates = {
+        acc_id: acc
+        for acc_id, acc in agg.items()
+        if acc["total_30d"] >= MIN_UNTIERED_CALLS and not is_blocked(acc["name"])
+    }
+
+    # ── Customer exclusion ─────────────────────────────────────────────────────
+    # Batch-fetch Total_Revenue_Closed_Won__c for all candidate accounts in one
+    # SOQL call, then mark and exclude customers (revenue > 0).
+    customer_ids: set[str] = set()
+    if sf and candidates:
+        id_list = "', '".join(candidates.keys())
+        rev_records = soql(sf, f"""
+            SELECT Id, Total_Revenue_Closed_Won__c
+            FROM Account
+            WHERE Id IN ('{id_list}')
+        """)
+        customer_ids = {
+            r["Id"]
+            for r in rev_records
+            if (r.get("Total_Revenue_Closed_Won__c") or 0) > 0
+        }
+        if customer_ids:
+            customer_names = [candidates[cid]["name"] for cid in customer_ids if cid in candidates]
+            print(f"  Excluding {len(customer_ids)} customer(s) from untiered results: "
+                  f"{', '.join(customer_names)}", file=sys.stderr)
+
+    results = [
+        {**acc, "weekly_avg": round(acc["total_30d"] / 4, 1), "is_customer": acc_id in customer_ids}
+        for acc_id, acc in candidates.items()
+        if acc_id not in customer_ids
+    ]
+    results.sort(key=lambda a: -a["total_30d"])
+    return results
+
+
+def print_untiered_report(accounts: list, date_str: str):
+    """Print a ranked console report of untiered accounts with significant usage."""
+    print(f"\n── Untiered Usage Scan — {date_str} {'─' * 30}")
+    print(f"   Accounts with ≥ {MIN_UNTIERED_CALLS:,} API calls/30d · excluding Tier 1, Tier 2.A, and customers\n")
+
+    if not accounts:
+        print("   No untiered accounts above threshold.")
+        return
+
+    # Column widths
+    name_w  = min(max(len(a["name"]) for a in accounts), 40)
+    owner_w = min(max(len(a["owner_name"]) for a in accounts), 22)
+
+    header = (f"  {'#':>3}  {'Account':<{name_w}}  {'Tier':<12}  "
+              f"{'30d calls':>10}  {'7d calls':>9}  {'Wk avg':>8}  "
+              f"{'Users':>5}  {'Owner':<{owner_w}}")
+    print(header)
+    print("  " + "─" * (len(header) - 2))
+
+    for i, acc in enumerate(accounts, 1):
+        name  = acc["name"][:name_w]
+        owner = acc["owner_name"][:owner_w]
+        print(
+            f"  {i:>3}.  {name:<{name_w}}  {acc['tier']:<12}  "
+            f"{acc['total_30d']:>10,}  {acc['total_7d']:>9,}  "
+            f"{acc['weekly_avg']:>8,.0f}  {acc['active_users']:>5}  {owner:<{owner_w}}"
+        )
+
+    print(f"\n  {len(accounts)} account(s) shown · all-time total: "
+          f"{sum(a['total_alltime'] for a in accounts):,} calls")
+    print("─" * 70)
 
 
 # ── Slack helpers ──────────────────────────────────────────────────────────────
@@ -420,13 +577,15 @@ def build_alert_lines(accounts: dict, bursts: dict, bot_token: str,
     return lines
 
 
-def post_to_slack(bot_token: str, lines: list[str], date_str: str, dry_run: bool = False):
+def post_to_slack(bot_token: str, lines: list[str], date_str: str,
+                  dry_run: bool = False, tier_label: str = "Tier 1"):
     import requests
     header = f"🔔 *Daily Signal Alerts — {date_str}*"
     text   = header + "\n\n" + "\n".join(lines)
 
     if dry_run:
-        print("\n── DRY RUN: Slack message (not posted) ──────────────────────────")
+        label = f" [{tier_label}]" if tier_label != "Tier 1" else ""
+        print(f"\n── DRY RUN{label}: Slack message (not posted) ───────────────────")
         print(text)
         print("─────────────────────────────────────────────────────────────────\n")
         return
@@ -488,6 +647,11 @@ def main():
                         help="Inject synthetic signals to verify Slack plumbing end-to-end")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print Slack message to stdout; do not post to channel")
+    parser.add_argument("--tier2", action="store_true",
+                        help="Scan Tier 2.A accounts instead of Tier 1. Always dry-run — never posts to Slack")
+    parser.add_argument("--untiered", action="store_true",
+                        help="Scan all accounts with significant usage that are NOT Tier 1 or Tier 2.A. "
+                             "Always dry-run — never posts to Slack")
     args = parser.parse_args()
 
     load_dotenv(ENV_PATH)
@@ -497,7 +661,30 @@ def main():
 
     lookback_days   = args.lookback if args.lookback is not None else 1
     lookback_cutoff = today - timedelta(days=lookback_days)
-    print(f"Date: {date_str}  |  Lookback: {lookback_days} day(s) (since {lookback_cutoff})")
+
+    # --untiered: scan accounts outside Tier 1/2.A by usage volume, always dry-run
+    if args.untiered:
+        print(f"Date: {date_str}  |  Mode: Untiered usage scan  |  Floor: {MIN_UNTIERED_CALLS:,} calls/30d")
+        print("Connecting to Salesforce...")
+        sf = connect_sf()
+        print("Fetching active usage records (all tiers)...")
+        usage_records = fetch_untiered_usage(sf)
+        print(f"  {len(usage_records)} active user record(s) found")
+        accounts = detect_untiered(usage_records, sf=sf)
+        print(f"  {len(accounts)} untiered prospect account(s) above threshold (customers excluded)")
+        print_untiered_report(accounts, date_str)
+        return
+
+    # --tier2 is always dry-run — Tier 2 output is exploratory, never posted to Slack
+    if args.tier2:
+        args.dry_run = True
+        tier_filter  = TIER2_FILTER
+        tier_label   = "Tier 2.A"
+    else:
+        tier_filter  = TIER1_FILTER
+        tier_label   = "Tier 1"
+
+    print(f"Date: {date_str}  |  Tier: {tier_label}  |  Lookback: {lookback_days} day(s) (since {lookback_cutoff})")
 
     bot_token  = os.getenv("SLACK_BOT_TOKEN", "")
     test_email = os.getenv("TEST_OWNER_EMAIL", "")  # override owner tags for testing
@@ -516,16 +703,16 @@ def main():
         sf = connect_sf()
 
         print(f"Fetching new Product_User__c records (since {lookback_cutoff})...")
-        records = fetch_new_users(sf, lookback_cutoff)
+        records = fetch_new_users(sf, lookback_cutoff, tier_filter)
         print(f"  {len(records)} new user record(s) found")
 
         print("Fetching usage data for burst detection...")
-        usage_records = fetch_all_usage(sf)
+        usage_records = fetch_all_usage(sf, tier_filter)
         bursts = detect_bursts(usage_records)
         print(f"  {len(bursts)} burst account(s) detected")
 
         if not records and not bursts:
-            print("No signals — skipping Slack post.")
+            print(f"No signals found for {tier_label} accounts.")
             return
 
         accounts = group_signals(records, lookback_cutoff) if records else {}
@@ -534,15 +721,15 @@ def main():
     lines = build_alert_lines(accounts, bursts, bot_token, test_email or None, date_str)
 
     if not lines:
-        print("No actionable signals — skipping Slack post.")
+        print(f"No actionable signals for {tier_label} accounts.")
         return
 
-    print(f"\nAlert preview:")
+    print(f"\nAlert preview ({tier_label}):")
     for line in lines:
         print(f"  {line}")
 
     if args.dry_run:
-        post_to_slack(bot_token, lines, date_str, dry_run=True)
+        post_to_slack(bot_token, lines, date_str, dry_run=True, tier_label=tier_label)
     elif bot_token:
         post_to_slack(bot_token, lines, date_str)
     else:
