@@ -40,10 +40,22 @@ SF_BASE       = "https://ydc.my.salesforce.com/"
 MIN_BURST_DELTA    = 500    # minimum absolute increase over weekly average (calls)
 MIN_BURST_RATIO    = 1.75   # this week must be ≥ 1.75× the weekly average
 MIN_UNTIERED_CALLS = 500    # minimum 30d calls for an untiered account to surface
-MIN_DORMANT_ALLTIME = 20_000 # minimum all-time calls for a dormant account to surface
+MIN_DORMANT_ALLTIME = 1_000  # minimum all-time calls for a dormant account to surface
 
 # Tiers already covered by the standard Tier 1 / Tier 2.A scans
 MONITORED_TIERS = {"1. TARGET ACCOUNT", "Tier 1", "2.A", "Tier 2"}
+
+# ── Dormant owner filter ───────────────────────────────────────────────────────
+# When set, --dormant results are limited to accounts owned by these names.
+# Exact case-insensitive match against Owner.Name. Empty set = show all owners.
+DORMANT_OWNERS: set[str] = {
+    "Nick Opderbeck",
+    "David Wacker",
+    "Integration",
+    "Ryan Allred",
+    "Ryan Reed",
+    "Andrew Miller-McKeever",
+}
 
 # ── Alert blocklist ────────────────────────────────────────────────────────────
 # Accounts listed here are silently excluded from all signal alerts (new users
@@ -91,6 +103,23 @@ def soql(sf, query: str) -> list:
     except Exception as e:
         print(f"  SOQL error: {e}", file=sys.stderr)
         return []
+
+
+def soql_in_chunks(sf, query_template: str, ids: list, chunk_size: int = 200) -> list:
+    """
+    Run a SOQL query that uses an IN clause against a potentially large list of
+    IDs. Splits into chunks to avoid HTTP 414 URI Too Long errors (simple_salesforce
+    uses GET requests, so the query ends up in the URL).
+
+    `query_template` must contain exactly one `{id_list}` placeholder, e.g.:
+        "SELECT Id FROM Account WHERE Id IN ('{id_list}')"
+    """
+    results = []
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i:i + chunk_size]
+        id_list = "', '".join(chunk)
+        results.extend(soql(sf, query_template.format(id_list=id_list)))
+    return results
 
 
 TIER1_FILTER = "('1. TARGET ACCOUNT', 'Tier 1')"
@@ -476,12 +505,11 @@ def detect_dormant(usage_records: list, sf=None) -> list:
     # with a mix of active and inactive users would otherwise appear here.
     partially_active_ids: set[str] = set()
     if sf and candidates:
-        id_list = "', '".join(candidates.keys())
-        active_records = soql(sf, f"""
-            SELECT Account__c FROM Product_User__c
-            WHERE Account__c IN ('{id_list}')
-            AND API_Calls_Last_30_Days__c > 0
-        """)
+        candidate_ids = list(candidates.keys())
+        active_records = soql_in_chunks(sf,
+            "SELECT Account__c FROM Product_User__c "
+            "WHERE Account__c IN ('{id_list}') AND API_Calls_Last_30_Days__c > 0",
+            candidate_ids)
         partially_active_ids = {r["Account__c"] for r in active_records}
         if partially_active_ids:
             active_names = [candidates[cid]["name"] for cid in partially_active_ids if cid in candidates]
@@ -496,24 +524,20 @@ def detect_dormant(usage_records: list, sf=None) -> list:
     # Customer exclusion — same two-pass logic as detect_untiered
     customer_ids: set[str] = set()
     if sf and candidates:
-        id_list = "', '".join(candidates.keys())
+        candidate_ids = list(candidates.keys())
 
-        rev_records = soql(sf, f"""
-            SELECT Id, Total_Revenue_Closed_Won__c
-            FROM Account
-            WHERE Id IN ('{id_list}')
-        """)
+        rev_records = soql_in_chunks(sf,
+            "SELECT Id, Total_Revenue_Closed_Won__c FROM Account WHERE Id IN ('{id_list}')",
+            candidate_ids)
         revenue_customer_ids = {
             r["Id"] for r in rev_records
             if (r.get("Total_Revenue_Closed_Won__c") or 0) > 0
         }
 
-        opp_records = soql(sf, f"""
-            SELECT AccountId FROM Opportunity
-            WHERE AccountId IN ('{id_list}')
-            AND StageName = 'Closed Won'
-            AND CloseDate >= LAST_N_DAYS:365
-        """)
+        opp_records = soql_in_chunks(sf,
+            "SELECT AccountId FROM Opportunity WHERE AccountId IN ('{id_list}') "
+            "AND StageName = 'Closed Won' AND CloseDate >= LAST_N_DAYS:365",
+            candidate_ids)
         recent_closedwon_ids = {r["AccountId"] for r in opp_records}
 
         customer_ids = revenue_customer_ids | recent_closedwon_ids
@@ -528,6 +552,11 @@ def detect_dormant(usage_records: list, sf=None) -> list:
             continue
         days_dark = (today - acc["last_call_date"]).days if acc["last_call_date"] else None
         results.append({**acc, "days_dark": days_dark})
+
+    # Owner filter — applied last so customer/activity exclusions still run in full
+    if DORMANT_OWNERS:
+        owner_lower = {o.lower() for o in DORMANT_OWNERS}
+        results = [a for a in results if a["owner_name"].lower() in owner_lower]
 
     results.sort(key=lambda a: (a["days_dark"] is None, a["days_dark"]))
     return results
