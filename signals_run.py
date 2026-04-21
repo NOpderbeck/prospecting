@@ -57,6 +57,13 @@ DORMANT_OWNERS: set[str] = {
     "Andrew Miller-McKeever",
 }
 
+# Regions to exclude from --dormant results. Exact case-insensitive match
+# against Region__c (or BillingCountry fallback). Empty set = show all regions.
+DORMANT_EXCLUDE_REGIONS: set[str] = {
+    "EMEA",
+    "DACH",
+}
+
 # ── Alert blocklist ────────────────────────────────────────────────────────────
 # Accounts listed here are silently excluded from all signal alerts (new users
 # and usage bursts). Match is case-insensitive substring of Account Name.
@@ -557,6 +564,11 @@ def detect_dormant(usage_records: list, sf=None) -> list:
     if DORMANT_OWNERS:
         owner_lower = {o.lower() for o in DORMANT_OWNERS}
         results = [a for a in results if a["owner_name"].lower() in owner_lower]
+
+    # Region exclusion — drop regions we don't want in the dormant view
+    if DORMANT_EXCLUDE_REGIONS:
+        excl_lower = {r.lower() for r in DORMANT_EXCLUDE_REGIONS}
+        results = [a for a in results if a["region"].lower() not in excl_lower]
 
     results.sort(key=lambda a: (a["days_dark"] is None, a["days_dark"]))
     return results
