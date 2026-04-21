@@ -471,6 +471,28 @@ def detect_dormant(usage_records: list, sf=None) -> list:
         and not is_untiered_blocked(acc["name"])
     }
 
+    # Account-level activity check — exclude any account that has at least one
+    # user with 30d activity. The dormant query filters per-user, so an account
+    # with a mix of active and inactive users would otherwise appear here.
+    partially_active_ids: set[str] = set()
+    if sf and candidates:
+        id_list = "', '".join(candidates.keys())
+        active_records = soql(sf, f"""
+            SELECT Account__c FROM Product_User__c
+            WHERE Account__c IN ('{id_list}')
+            AND API_Calls_Last_30_Days__c > 0
+        """)
+        partially_active_ids = {r["Account__c"] for r in active_records}
+        if partially_active_ids:
+            active_names = [candidates[cid]["name"] for cid in partially_active_ids if cid in candidates]
+            print(f"  Excluding {len(partially_active_ids)} partially-active account(s): "
+                  f"{', '.join(active_names)}", file=sys.stderr)
+
+    candidates = {
+        acc_id: acc for acc_id, acc in candidates.items()
+        if acc_id not in partially_active_ids
+    }
+
     # Customer exclusion — same two-pass logic as detect_untiered
     customer_ids: set[str] = set()
     if sf and candidates:
