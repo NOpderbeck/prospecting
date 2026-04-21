@@ -37,9 +37,10 @@ SF_BASE       = "https://ydc.my.salesforce.com/"
 # Both conditions must be true to fire. The absolute floor prevents false
 # positives at low volumes (10→20 is noise); the ratio ensures the spike is
 # proportionally meaningful at higher volumes (5000→5800 is growth, not a burst).
-MIN_BURST_DELTA    = 500   # minimum absolute increase over weekly average (calls)
-MIN_BURST_RATIO    = 1.75  # this week must be ≥ 1.75× the weekly average
-MIN_UNTIERED_CALLS = 500   # minimum 30d calls for an untiered account to surface
+MIN_BURST_DELTA    = 500    # minimum absolute increase over weekly average (calls)
+MIN_BURST_RATIO    = 1.75   # this week must be ≥ 1.75× the weekly average
+MIN_UNTIERED_CALLS = 500    # minimum 30d calls for an untiered account to surface
+MIN_DORMANT_ALLTIME = 5_000 # minimum all-time calls for a dormant account to surface
 
 # Tiers already covered by the standard Tier 1 / Tier 2.A scans
 MONITORED_TIERS = {"1. TARGET ACCOUNT", "Tier 1", "2.A", "Tier 2"}
@@ -377,6 +378,174 @@ def print_untiered_report(accounts: list, date_str: str):
     print("─" * 70)
 
 
+# ── Dormant untiered scan ──────────────────────────────────────────────────────
+
+def fetch_dormant_usage(sf) -> list:
+    """
+    Return Product_User__c records with all-time usage but zero activity in the
+    last 30 days. Includes First/Last call dates for recency calculations.
+    """
+    return soql(sf, """
+        SELECT Account__c,
+               Account__r.Name,
+               Account__r.Id,
+               Account__r.Account_Tier__c,
+               Account__r.Region__c,
+               Account__r.BillingCountry,
+               Account__r.Owner.Name,
+               Account__r.Owner.Email,
+               API_Calls_Last_30_Days__c,
+               API_Calls_per_User_All_Time__c,
+               First_API_Call_Date__c,
+               Last_API_Call_Date__c
+        FROM Product_User__c
+        WHERE API_Calls_per_User_All_Time__c > 0
+        AND (API_Calls_Last_30_Days__c = 0 OR API_Calls_Last_30_Days__c = null)
+        ORDER BY Account__r.Name
+    """)
+
+
+def detect_dormant(usage_records: list, sf=None) -> list:
+    """
+    Aggregate by account, exclude Tier 1/2.A (MONITORED_TIERS), customers,
+    and the UNTIERED_BLOCKLIST. Apply MIN_DORMANT_ALLTIME floor. Sort by
+    all-time calls descending.
+
+    Returns list of dicts with keys: name, sf_id, tier, region, owner_name,
+    owner_email, total_alltime, total_30d, last_call_date, days_dark,
+    first_call_date, users.
+    """
+    from datetime import date as date_type
+    today = date.today()
+
+    agg: dict = {}
+    for r in usage_records:
+        acc_ref = r.get("Account__r") or {}
+        acc_id  = r.get("Account__c") or acc_ref.get("Id", "")
+        tier    = acc_ref.get("Account_Tier__c") or ""
+
+        if not acc_id:
+            continue
+        if tier in MONITORED_TIERS:
+            continue
+
+        # Parse last/first call dates
+        raw_last  = r.get("Last_API_Call_Date__c")
+        raw_first = r.get("First_API_Call_Date__c")
+        last_dt   = date.fromisoformat(raw_last[:10])  if raw_last  else None
+        first_dt  = date.fromisoformat(raw_first[:10]) if raw_first else None
+
+        if acc_id not in agg:
+            region = (acc_ref.get("Region__c") or
+                      acc_ref.get("BillingCountry") or "—")
+            agg[acc_id] = {
+                "name":          acc_ref.get("Name", "Unknown"),
+                "sf_id":         acc_ref.get("Id", acc_id),
+                "tier":          tier or "—",
+                "region":        region,
+                "owner_name":    (acc_ref.get("Owner") or {}).get("Name", ""),
+                "owner_email":   (acc_ref.get("Owner") or {}).get("Email", ""),
+                "total_alltime": 0,
+                "total_30d":     0,
+                "last_call_date":  last_dt,
+                "first_call_date": first_dt,
+                "users":         0,
+            }
+
+        agg[acc_id]["total_alltime"] += int(r.get("API_Calls_per_User_All_Time__c") or 0)
+        agg[acc_id]["total_30d"]     += int(r.get("API_Calls_Last_30_Days__c")      or 0)
+        agg[acc_id]["users"]         += 1
+
+        # Keep the most recent last_call_date and earliest first_call_date
+        if last_dt and (agg[acc_id]["last_call_date"] is None or last_dt > agg[acc_id]["last_call_date"]):
+            agg[acc_id]["last_call_date"] = last_dt
+        if first_dt and (agg[acc_id]["first_call_date"] is None or first_dt < agg[acc_id]["first_call_date"]):
+            agg[acc_id]["first_call_date"] = first_dt
+
+    # Threshold + blocklist before customer lookup
+    candidates = {
+        acc_id: acc
+        for acc_id, acc in agg.items()
+        if acc["total_alltime"] >= MIN_DORMANT_ALLTIME
+        and not is_blocked(acc["name"])
+        and not is_untiered_blocked(acc["name"])
+    }
+
+    # Customer exclusion — same two-pass logic as detect_untiered
+    customer_ids: set[str] = set()
+    if sf and candidates:
+        id_list = "', '".join(candidates.keys())
+
+        rev_records = soql(sf, f"""
+            SELECT Id, Total_Revenue_Closed_Won__c
+            FROM Account
+            WHERE Id IN ('{id_list}')
+        """)
+        revenue_customer_ids = {
+            r["Id"] for r in rev_records
+            if (r.get("Total_Revenue_Closed_Won__c") or 0) > 0
+        }
+
+        opp_records = soql(sf, f"""
+            SELECT AccountId FROM Opportunity
+            WHERE AccountId IN ('{id_list}')
+            AND StageName = 'Closed Won'
+            AND CloseDate >= LAST_N_DAYS:365
+        """)
+        recent_closedwon_ids = {r["AccountId"] for r in opp_records}
+
+        customer_ids = revenue_customer_ids | recent_closedwon_ids
+        if customer_ids:
+            customer_names = [candidates[cid]["name"] for cid in customer_ids if cid in candidates]
+            print(f"  Excluding {len(customer_ids)} customer(s): {', '.join(customer_names)}",
+                  file=sys.stderr)
+
+    results = []
+    for acc_id, acc in candidates.items():
+        if acc_id in customer_ids:
+            continue
+        days_dark = (today - acc["last_call_date"]).days if acc["last_call_date"] else None
+        results.append({**acc, "days_dark": days_dark})
+
+    results.sort(key=lambda a: -a["total_alltime"])
+    return results
+
+
+def print_dormant_report(accounts: list, date_str: str):
+    """Print a ranked console report of dormant untiered prospects."""
+    print(f"\n── Dormant Untiered Scan — {date_str} {'─' * 26}")
+    print(f"   Untiered prospects · zero usage last 30d · ≥ {MIN_DORMANT_ALLTIME:,} all-time calls\n")
+
+    if not accounts:
+        print("   No dormant untiered accounts above threshold.")
+        return
+
+    name_w   = min(max(len(a["name"])       for a in accounts), 40)
+    region_w = min(max(len(a["region"])     for a in accounts), 16)
+    owner_w  = min(max(len(a["owner_name"]) for a in accounts), 22)
+
+    header = (f"  {'#':>3}  {'Account':<{name_w}}  {'Tier':<12}  "
+              f"{'Region':<{region_w}}  {'All-time':>10}  "
+              f"{'Last call':<12}  {'Days dark':>9}  {'Users':>5}  {'Owner':<{owner_w}}")
+    print(header)
+    print("  " + "─" * (len(header) - 2))
+
+    for i, acc in enumerate(accounts, 1):
+        name      = acc["name"][:name_w]
+        region    = acc["region"][:region_w]
+        owner     = acc["owner_name"][:owner_w]
+        last_call = acc["last_call_date"].strftime("%Y-%m-%d") if acc["last_call_date"] else "never"
+        days_dark = f"{acc['days_dark']:,}d" if acc["days_dark"] is not None else "—"
+        print(
+            f"  {i:>3}.  {name:<{name_w}}  {acc['tier']:<12}  "
+            f"{region:<{region_w}}  {acc['total_alltime']:>10,}  "
+            f"{last_call:<12}  {days_dark:>9}  {acc['users']:>5}  {owner:<{owner_w}}"
+        )
+
+    print(f"\n  {len(accounts)} account(s) shown")
+    print("─" * 70)
+
+
 # ── Slack helpers ──────────────────────────────────────────────────────────────
 
 _slack_id_cache: dict[str, str] = {}
@@ -696,6 +865,9 @@ def main():
     parser.add_argument("--untiered", action="store_true",
                         help="Scan all accounts with significant usage that are NOT Tier 1 or Tier 2.A. "
                              "Always dry-run — never posts to Slack")
+    parser.add_argument("--dormant", action="store_true",
+                        help="Scan untiered prospects with zero usage in the last 30d but significant "
+                             "all-time history. Always dry-run — never posts to Slack")
     args = parser.parse_args()
 
     load_dotenv(ENV_PATH)
@@ -705,6 +877,19 @@ def main():
 
     lookback_days   = args.lookback if args.lookback is not None else 1
     lookback_cutoff = today - timedelta(days=lookback_days)
+
+    # --dormant: untiered prospects with historical usage but gone dark in last 30d
+    if args.dormant:
+        print(f"Date: {date_str}  |  Mode: Dormant untiered scan  |  Floor: {MIN_DORMANT_ALLTIME:,} all-time calls")
+        print("Connecting to Salesforce...")
+        sf = connect_sf()
+        print("Fetching dormant usage records (all tiers)...")
+        usage_records = fetch_dormant_usage(sf)
+        print(f"  {len(usage_records)} dormant user record(s) found")
+        accounts = detect_dormant(usage_records, sf=sf)
+        print(f"  {len(accounts)} dormant untiered prospect(s) above threshold (customers excluded)")
+        print_dormant_report(accounts, date_str)
+        return
 
     # --untiered: scan accounts outside Tier 1/2.A by usage volume, always dry-run
     if args.untiered:
