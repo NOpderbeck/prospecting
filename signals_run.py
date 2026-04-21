@@ -40,7 +40,7 @@ SF_BASE       = "https://ydc.my.salesforce.com/"
 MIN_BURST_DELTA    = 500    # minimum absolute increase over weekly average (calls)
 MIN_BURST_RATIO    = 1.75   # this week must be ≥ 1.75× the weekly average
 MIN_UNTIERED_CALLS = 500    # minimum 30d calls for an untiered account to surface
-MIN_DORMANT_ALLTIME = 5_000 # minimum all-time calls for a dormant account to surface
+MIN_DORMANT_ALLTIME = 20_000 # minimum all-time calls for a dormant account to surface
 
 # Tiers already covered by the standard Tier 1 / Tier 2.A scans
 MONITORED_TIERS = {"1. TARGET ACCOUNT", "Tier 1", "2.A", "Tier 2"}
@@ -529,7 +529,7 @@ def detect_dormant(usage_records: list, sf=None) -> list:
         days_dark = (today - acc["last_call_date"]).days if acc["last_call_date"] else None
         results.append({**acc, "days_dark": days_dark})
 
-    results.sort(key=lambda a: -a["total_alltime"])
+    results.sort(key=lambda a: (a["days_dark"] is None, a["days_dark"]))
     return results
 
 
