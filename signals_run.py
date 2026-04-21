@@ -197,6 +197,8 @@ def fetch_untiered_usage(sf) -> list:
                Account__r.Name,
                Account__r.Id,
                Account__r.Account_Tier__c,
+               Account__r.Region__c,
+               Account__r.BillingCountry,
                Account__r.Owner.Name,
                Account__r.Owner.Email,
                API_Calls_Last_7_Days__c,
@@ -246,10 +248,13 @@ def detect_untiered(usage_records: list, sf=None) -> list:
             continue
 
         if acc_id not in agg:
+            region = (acc_ref.get("Region__c") or
+                      acc_ref.get("BillingCountry") or "—")
             agg[acc_id] = {
                 "name":         acc_ref.get("Name", "Unknown"),
                 "sf_id":        acc_ref.get("Id", acc_id),
                 "tier":         tier or "—",
+                "region":       region,
                 "owner_name":   (acc_ref.get("Owner") or {}).get("Name", ""),
                 "owner_email":  (acc_ref.get("Owner") or {}).get("Email", ""),
                 "total_7d":     0,
@@ -327,20 +332,24 @@ def print_untiered_report(accounts: list, date_str: str):
         return
 
     # Column widths
-    name_w  = min(max(len(a["name"]) for a in accounts), 40)
-    owner_w = min(max(len(a["owner_name"]) for a in accounts), 22)
+    name_w   = min(max(len(a["name"])        for a in accounts), 40)
+    region_w = min(max(len(a["region"])      for a in accounts), 16)
+    owner_w  = min(max(len(a["owner_name"])  for a in accounts), 22)
 
     header = (f"  {'#':>3}  {'Account':<{name_w}}  {'Tier':<12}  "
+              f"{'Region':<{region_w}}  "
               f"{'30d calls':>10}  {'7d calls':>9}  {'Wk avg':>8}  "
               f"{'Users':>5}  {'Owner':<{owner_w}}")
     print(header)
     print("  " + "─" * (len(header) - 2))
 
     for i, acc in enumerate(accounts, 1):
-        name  = acc["name"][:name_w]
-        owner = acc["owner_name"][:owner_w]
+        name   = acc["name"][:name_w]
+        region = acc["region"][:region_w]
+        owner  = acc["owner_name"][:owner_w]
         print(
             f"  {i:>3}.  {name:<{name_w}}  {acc['tier']:<12}  "
+            f"{region:<{region_w}}  "
             f"{acc['total_30d']:>10,}  {acc['total_7d']:>9,}  "
             f"{acc['weekly_avg']:>8,.0f}  {acc['active_users']:>5}  {owner:<{owner_w}}"
         )
