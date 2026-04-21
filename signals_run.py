@@ -70,8 +70,7 @@ def is_blocked(account_name: str) -> bool:
 
 
 def is_untiered_blocked(account_name: str) -> bool:
-    name_lower = account_name.lower()
-    return any(entry.lower() in name_lower for entry in UNTIERED_BLOCKLIST)
+    return account_name.lower() in {entry.lower() for entry in UNTIERED_BLOCKLIST}
 
 
 # ── Salesforce ─────────────────────────────────────────────────────────────────
