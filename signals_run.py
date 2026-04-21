@@ -58,6 +58,9 @@ ALERT_BLOCKLIST = [
 UNTIERED_BLOCKLIST = [
     "Alumni Ventures",
     "University of Gloucestershire",
+    "PrivateRelay",
+    "Web",
+    "Domain.com",
 ]
 
 
