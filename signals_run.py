@@ -51,10 +51,24 @@ ALERT_BLOCKLIST = [
     "BytePlus",
 ]
 
+# ── Untiered blocklist ─────────────────────────────────────────────────────────
+# Accounts listed here are excluded from --untiered scans only. Use for accounts
+# with high API volume that are known noise (e.g. internal tools, resellers,
+# universities with bulk free-tier usage). Case-insensitive substring match.
+UNTIERED_BLOCKLIST = [
+    "Alumni Ventures",
+    "University of Gloucestershire",
+]
+
 
 def is_blocked(account_name: str) -> bool:
     name_lower = account_name.lower()
     return any(entry.lower() in name_lower for entry in ALERT_BLOCKLIST)
+
+
+def is_untiered_blocked(account_name: str) -> bool:
+    name_lower = account_name.lower()
+    return any(entry.lower() in name_lower for entry in UNTIERED_BLOCKLIST)
 
 
 # ── Salesforce ─────────────────────────────────────────────────────────────────
@@ -272,7 +286,9 @@ def detect_untiered(usage_records: list, sf=None) -> list:
     candidates = {
         acc_id: acc
         for acc_id, acc in agg.items()
-        if acc["total_30d"] >= MIN_UNTIERED_CALLS and not is_blocked(acc["name"])
+        if acc["total_30d"] >= MIN_UNTIERED_CALLS
+        and not is_blocked(acc["name"])
+        and not is_untiered_blocked(acc["name"])
     }
 
     # ── Customer exclusion ─────────────────────────────────────────────────────
