@@ -271,21 +271,38 @@ def detect_untiered(usage_records: list, sf=None) -> list:
     }
 
     # ── Customer exclusion ─────────────────────────────────────────────────────
-    # Batch-fetch Total_Revenue_Closed_Won__c for all candidate accounts in one
-    # SOQL call, then mark and exclude customers (revenue > 0).
+    # Two passes, both run in one query each:
+    #   Pass 1 — accounts with Total_Revenue_Closed_Won__c > 0 (paid customers)
+    #   Pass 2 — accounts with any Closed Won opp in the last 12 months (catches
+    #             $0 PAYG agreements that show zero revenue but are signed customers)
     customer_ids: set[str] = set()
     if sf and candidates:
         id_list = "', '".join(candidates.keys())
+
+        # Pass 1: revenue-based
         rev_records = soql(sf, f"""
             SELECT Id, Total_Revenue_Closed_Won__c
             FROM Account
             WHERE Id IN ('{id_list}')
         """)
-        customer_ids = {
+        revenue_customer_ids = {
             r["Id"]
             for r in rev_records
             if (r.get("Total_Revenue_Closed_Won__c") or 0) > 0
         }
+
+        # Pass 2: recently closed won (last 12 months) — catches $0 PAYG deals
+        opp_records = soql(sf, f"""
+            SELECT AccountId
+            FROM Opportunity
+            WHERE AccountId IN ('{id_list}')
+            AND StageName = 'Closed Won'
+            AND CloseDate >= LAST_N_DAYS:365
+        """)
+        recent_closedwon_ids = {r["AccountId"] for r in opp_records}
+
+        customer_ids = revenue_customer_ids | recent_closedwon_ids
+
         if customer_ids:
             customer_names = [candidates[cid]["name"] for cid in customer_ids if cid in candidates]
             print(f"  Excluding {len(customer_ids)} customer(s) from untiered results: "
