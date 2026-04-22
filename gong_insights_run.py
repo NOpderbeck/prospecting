@@ -284,8 +284,19 @@ Rank descending by (frequency × impact).
 ## Feature Opportunities
 Cluster related requests into themes. For each:
 - **[Theme]** — signal: Early / Repeated / Strong demand
-  - Quotes + accounts
+  - Quote: "exact customer words" — [Account], [Date]
   - Why it matters: [context]
+
+## Objection Analysis
+For each objection type:
+- **[Objection]** — {n_placeholder} occurrences | Stage: [funnel stage]
+  - Quote: "exact customer words" — [Account], [Date]
+  - Root cause: [classification]
+  - Mitigation: [suggested product or GTM response]
+
+## Capability Wins
+Where customers reacted positively to existing capabilities:
+- **[Capability]** — "[quote]" — [Account] — why it mattered
 
 ## Competitive Landscape
 For each competitor mentioned:
@@ -294,17 +305,6 @@ For each competitor mentioned:
   - Outcome: win / loss / unknown
   - Differentiators customers cited
 
-## Objection Analysis
-For each objection type:
-- **[Objection]** — {n_placeholder} occurrences | Stage: [funnel stage]
-  - Quote: "..."
-  - Root cause: [classification]
-  - Mitigation: [suggested product or GTM response]
-
-## Capability Wins
-Where customers reacted positively to existing capabilities:
-- **[Capability]** — "[quote]" — [Account] — why it mattered
-
 ## Raw Evidence Appendix
 | Category | Quote | Account | Date | Call URL |
 |----------|-------|---------|------|----------|
@@ -312,7 +312,7 @@ Where customers reacted positively to existing capabilities:
 Include ALL extracted quotes with source info.
 
 ---
-Main sections (Executive Summary through Capability Wins): max 2,000 words.
+Main sections (Executive Summary through Competitive Landscape): max 2,000 words.
 Every insight must cite the account it came from. Cover all accounts represented in the transcripts — do not omit any.
 Use bullet points throughout. No filler.\
 """
@@ -965,20 +965,28 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
         if not pending_entry:
             return
         # Fallback: derive "Mentioned by" from last citation if no explicit Accounts line
-        if "citations" in pending_entry and "accounts" not in pending_entry:
-            cit_text = pending_entry["citations"][-1][0]
-            acct = re.sub(r'\s*\(.*?\)', '', cit_text.split(',')[0]).strip()
-            if acct:
-                label = "Mentioned by: "
-                pending_entry["accounts"] = (
-                    label + acct, N, False,
-                    [(0, len(label) - 1, "bold")],
-                )
+        quotes = pending_entry.get("quotes", [])
+        if quotes and "accounts" not in pending_entry:
+            last_c = quotes[-1][1]  # c_tuple from (q_tuple, c_tuple)
+            if last_c:
+                cit_text = last_c[0]
+                acct = re.sub(r'\s*\(.*?\)', '', cit_text.split(',')[0]).strip()
+                # strip leading em-dash if present
+                acct = re.sub(r'^—\s*', '', acct).strip()
+                if acct:
+                    label = "Mentioned by: "
+                    pending_entry["accounts"] = (
+                        label + acct, N, False,
+                        [(0, len(label) - 1, "bold")],
+                    )
         add_norm = pending_entry.get("norm")
+        add_why  = pending_entry.get("why")
         quotes   = pending_entry.get("quotes", [])
         accounts = pending_entry.get("accounts")
         if add_norm:
             add(*add_norm)
+        if add_why:
+            add(*add_why)
         for q_tuple, c_tuple in quotes:
             add(*q_tuple)
             if c_tuple:
@@ -1074,6 +1082,10 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
             add(plain, N, False, fmts)
             continue
 
+        # Matches "— Account [(person)], YYYY-MM-DD" at end of line.
+        # [^—]+ prevents matching a mid-quote em-dash as the citation start.
+        _CIT_RE = re.compile(r'(\s*—\s*[^—]+?,\s*\d{4}-\d{2}-\d{2})\s*$')
+
         def _handle_data_subitem(raw: str) -> bool:
             """Handle a sub-item line within a DATA_SECTIONS entry.
             Returns True if handled, False if unknown (caller should flush+render)."""
@@ -1082,10 +1094,10 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 plain, fmts = _parse_inline_formats(stripped, url_dict)
                 url = next((f for _, _, f in fmts
                             if isinstance(f, str) and f.startswith("http")), None)
-                cit_m = re.search(r'\s*(—\s*.+,\s*\d{4}-\d{2}-\d{2})\s*$', plain)
+                cit_m = _CIT_RE.search(plain)
                 if cit_m:
                     quote_body = plain[:cit_m.start()]
-                    citation   = re.sub(r'^—\s*', '', cit_m.group(1).strip())
+                    citation   = re.sub(r'^—\s*', '', cit_m.group(1).strip())  # strip leading em-dash
                 else:
                     quote_body = plain
                     citation   = None
@@ -1104,6 +1116,11 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 plain, fmts = _parse_inline_formats(stripped, url_dict)
                 pending_entry["norm"] = (plain, N, False, fmts)
                 return True
+            if re.match(r'^Why it matters:\s*', raw, re.IGNORECASE):
+                stripped = re.sub(r'^Why it matters:\s*', '', raw, flags=re.IGNORECASE)
+                plain, fmts = _parse_inline_formats(stripped, url_dict)
+                pending_entry["why"] = (plain, N, False, fmts)
+                return True
             if re.match(r'^Accounts?:\s*', raw, re.IGNORECASE):
                 accts = re.sub(r'^Accounts?:\s*', '', raw, flags=re.IGNORECASE).strip()
                 label = "Mentioned by: "
@@ -1117,6 +1134,20 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 flush_entry()
                 return True
             return False
+
+        # ── Numbered list item (Claude sometimes uses "1. **Theme**" in data sections) ──
+        m_num = re.match(r'^\d+\.\s+', line)
+        if m_num and current_section in DATA_SECTIONS:
+            raw = line[m_num.end():].strip()
+            if not _handle_data_subitem(raw):
+                plain, fmts = _parse_inline_formats(raw, url_dict)
+                flush_entry()
+                sep = " — "
+                idx = plain.find(sep)
+                display = (plain[:idx].upper() + sep + plain[idx + len(sep):]) \
+                          if idx >= 0 else plain.upper()
+                add(display, N, False, fmts)
+            continue
 
         # ── Top-level bullet ─────────────────────────────────────────────────
         if re.match(r'^- ', line):
