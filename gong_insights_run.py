@@ -48,6 +48,27 @@ GOOGLE_SCOPES         = ["https://www.googleapis.com/auth/drive",
 SLACK_CHANNEL         = "C0B01T4505N"   # #weekly-gong-insights — ID is rename-safe
 
 
+# Patterns that identify internal-only calls by title when no CRM account is linked
+_INTERNAL_TITLE_RE = re.compile(
+    r'\b(team\s+weekly|team\s+sync|internal|all.?hands|stand.?up|standup|'
+    r'retrospective|retro|onboarding|training|interview|hiring|'
+    r'kickoff\s+internal|company\s+update|culture|offsite)\b',
+    re.IGNORECASE,
+)
+
+
+def _is_likely_external(call: dict) -> bool:
+    """Return True if the call appears to be with an external party."""
+    meta         = call.get("metaData") or {}
+    account_name = (meta.get("primaryAccount") or {}).get("name") or ""
+    if account_name:
+        return True
+    title = (call.get("title") or "").strip()
+    if _INTERNAL_TITLE_RE.search(title):
+        return False
+    return True  # no CRM account but title doesn't look internal — include
+
+
 # ---------------------------------------------------------------------------
 # CLI & Config
 # ---------------------------------------------------------------------------
@@ -127,6 +148,8 @@ def fetch_calls(config: dict, from_dt: datetime, to_dt: datetime,
             print(f"  API page: totalRecords={data.get('records', {}).get('totalRecords', '?')}")
 
         for call in data.get("calls", []):
+            if not _is_likely_external(call):
+                continue
             if (call.get("duration") or 0) >= MIN_DURATION_SECONDS:
                 calls.append(call)
             if len(calls) >= max_calls:
@@ -941,21 +964,27 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
         nonlocal pending_entry
         if not pending_entry:
             return
-        # Fallback: derive "Mentioned by" from citation if no explicit Accounts line
-        if "citation" in pending_entry and "accounts" not in pending_entry:
-            cit_text = pending_entry["citation"][0]
+        # Fallback: derive "Mentioned by" from last citation if no explicit Accounts line
+        if "citations" in pending_entry and "accounts" not in pending_entry:
+            cit_text = pending_entry["citations"][-1][0]
             acct = re.sub(r'\s*\(.*?\)', '', cit_text.split(',')[0]).strip()
             if acct:
                 label = "Mentioned by: "
-                body  = acct
                 pending_entry["accounts"] = (
-                    label + body, N, False,
+                    label + acct, N, False,
                     [(0, len(label) - 1, "bold")],
                 )
-        for key in ("norm", "quote", "citation", "accounts"):
-            if key in pending_entry:
-                txt, style, bold, fmts = pending_entry[key]
-                add(txt, style, bold, fmts)
+        add_norm = pending_entry.get("norm")
+        quotes   = pending_entry.get("quotes", [])
+        accounts = pending_entry.get("accounts")
+        if add_norm:
+            add(*add_norm)
+        for q_tuple, c_tuple in quotes:
+            add(*q_tuple)
+            if c_tuple:
+                add(*c_tuple)
+        if accounts:
+            add(*accounts)
         pending_entry.clear()
 
     lines = markdown_text.split("\n")
@@ -1045,17 +1074,67 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
             add(plain, N, False, fmts)
             continue
 
+        def _handle_data_subitem(raw: str) -> bool:
+            """Handle a sub-item line within a DATA_SECTIONS entry.
+            Returns True if handled, False if unknown (caller should flush+render)."""
+            if re.match(r'^Quotes?:\s*', raw, re.IGNORECASE):
+                stripped = re.sub(r'^Quotes?:\s*', '', raw, flags=re.IGNORECASE)
+                plain, fmts = _parse_inline_formats(stripped, url_dict)
+                url = next((f for _, _, f in fmts
+                            if isinstance(f, str) and f.startswith("http")), None)
+                cit_m = re.search(r'\s*(—\s*.+,\s*\d{4}-\d{2}-\d{2})\s*$', plain)
+                if cit_m:
+                    quote_body = plain[:cit_m.start()]
+                    citation   = re.sub(r'^—\s*', '', cit_m.group(1).strip())
+                else:
+                    quote_body = plain
+                    citation   = None
+                q_m    = re.search(r'[\u201c\u0022].*[\u201d\u0022]', quote_body)
+                q_fmts = [(q_m.start(), q_m.end(), "italic")] if q_m else [(0, len(quote_body), "italic")]
+                c_tuple = None
+                if citation:
+                    c_fmts  = [(0, len(citation), url)] if url else []
+                    c_tuple = (citation, N, False, c_fmts)
+                pending_entry.setdefault("quotes", []).append(
+                    ((quote_body, N, False, q_fmts), c_tuple)
+                )
+                return True
+            if re.match(r'^Normalized need:\s*', raw, re.IGNORECASE):
+                stripped = re.sub(r'^Normalized need:\s*', '', raw, flags=re.IGNORECASE)
+                plain, fmts = _parse_inline_formats(stripped, url_dict)
+                pending_entry["norm"] = (plain, N, False, fmts)
+                return True
+            if re.match(r'^Accounts?:\s*', raw, re.IGNORECASE):
+                accts = re.sub(r'^Accounts?:\s*', '', raw, flags=re.IGNORECASE).strip()
+                label = "Mentioned by: "
+                pending_entry["accounts"] = (
+                    label + accts, N, False,
+                    [(0, len(label) - 1, "bold")],
+                )
+                flush_entry()
+                return True
+            if re.match(r'^Blocking deal', raw, re.IGNORECASE):
+                flush_entry()
+                return True
+            return False
+
         # ── Top-level bullet ─────────────────────────────────────────────────
         if re.match(r'^- ', line):
-            plain, fmts = _parse_inline_formats(line[2:].strip(), url_dict)
+            raw = line[2:].strip()
             if current_section in DATA_SECTIONS:
-                # Uppercase only the label (before first ' — '), keep rest as-is
+                # Sub-item patterns can appear at top level if Claude skips indentation
+                if _handle_data_subitem(raw):
+                    continue
+                # This is the theme header line — uppercase label before ' — '
+                plain, fmts = _parse_inline_formats(raw, url_dict)
+                flush_entry()
                 sep = " — "
                 idx = plain.find(sep)
                 display = (plain[:idx].upper() + sep + plain[idx + len(sep):]) \
                           if idx >= 0 else plain.upper()
                 add(display, N, False, fmts)
             else:
+                plain, fmts = _parse_inline_formats(raw, url_dict)
                 prefix = "• "
                 shifted = [(s + len(prefix), e + len(prefix), f) for s, e, f in fmts]
                 add(prefix + plain, N, False, shifted)
@@ -1065,45 +1144,7 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
         if re.match(r'^\s{2,}- ', line):
             raw = re.sub(r'^\s+-\s+', '', line).strip()
             if current_section in DATA_SECTIONS:
-                if re.match(r'^Quotes?:\s*', raw, re.IGNORECASE):
-                    # Strip label FIRST so citation positions are correct
-                    stripped = re.sub(r'^Quotes?:\s*', '', raw, flags=re.IGNORECASE)
-                    plain, fmts = _parse_inline_formats(stripped, url_dict)
-                    # Extract URL (if any) from parsed fmts before splitting
-                    url = next((f for _, _, f in fmts
-                                if isinstance(f, str) and f.startswith("http")), None)
-                    # Split quote body from citation (— Account, Date)
-                    cit_m = re.search(r'\s*(—\s*.+,\s*\d{4}-\d{2}-\d{2})\s*$', plain)
-                    if cit_m:
-                        quote_body = plain[:cit_m.start()]
-                        citation   = re.sub(r'^—\s*', '', cit_m.group(1).strip())
-                    else:
-                        quote_body = plain
-                        citation   = None
-                    # Italic the quoted span within the quote body
-                    q_m = re.search(r'[\u201c\u0022].*[\u201d\u0022]', quote_body)
-                    q_fmts = [(q_m.start(), q_m.end(), "italic")] if q_m else []
-                    pending_entry["quote"] = (quote_body, N, False, q_fmts)
-                    # Citation on its own line with hyperlink covering full text
-                    if citation:
-                        c_fmts = [(0, len(citation), url)] if url else []
-                        pending_entry["citation"] = (citation, N, False, c_fmts)
-                elif re.match(r'^Normalized need:\s*', raw, re.IGNORECASE):
-                    stripped = re.sub(r'^Normalized need:\s*', '', raw, flags=re.IGNORECASE)
-                    plain, fmts = _parse_inline_formats(stripped, url_dict)
-                    pending_entry["norm"] = (plain, N, False, fmts)
-                elif re.match(r'^Accounts?:\s*', raw, re.IGNORECASE):
-                    accts = re.sub(r'^Accounts?:\s*', '', raw, flags=re.IGNORECASE).strip()
-                    label = "Mentioned by: "
-                    pending_entry["accounts"] = (
-                        label + accts, N, False,
-                        [(0, len(label) - 1, "bold")],
-                    )
-                    flush_entry()
-                elif re.match(r'^Blocking deal', raw, re.IGNORECASE):
-                    # Drop entirely — flush whatever is buffered
-                    flush_entry()
-                else:
+                if not _handle_data_subitem(raw):
                     flush_entry()
                     plain, fmts = _parse_inline_formats(raw, url_dict)
                     label_m = re.match(r'^([A-Za-z][^:?]*[:?])', plain)
