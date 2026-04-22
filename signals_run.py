@@ -23,6 +23,7 @@ Environment variables:
 """
 
 import argparse
+import json
 import os
 import sys
 from collections import defaultdict
@@ -37,10 +38,16 @@ SF_BASE       = "https://ydc.my.salesforce.com/"
 # Both conditions must be true to fire. The absolute floor prevents false
 # positives at low volumes (10→20 is noise); the ratio ensures the spike is
 # proportionally meaningful at higher volumes (5000→5800 is growth, not a burst).
-MIN_BURST_DELTA    = 500    # minimum absolute increase over weekly average (calls)
-MIN_BURST_RATIO    = 1.75   # this week must be ≥ 1.75× the weekly average
-MIN_UNTIERED_CALLS = 500    # minimum 30d calls for an untiered account to surface
-MIN_DORMANT_ALLTIME = 1_000  # minimum all-time calls for a dormant account to surface
+MIN_BURST_DELTA     = 500   # minimum absolute increase over weekly average (calls)
+MIN_BURST_RATIO     = 1.75  # this week must be ≥ 1.75× the weekly average
+MIN_UNTIERED_CALLS  = 500   # minimum 30d calls for an untiered account to surface
+MIN_DORMANT_ALLTIME = 1_000 # minimum all-time calls for a dormant account to surface
+BURST_COOLDOWN_DAYS = 7     # suppress repeat burst alerts for the same account within N days
+
+# State file — tracks when each account last fired a burst alert
+# Stored next to the script so it persists across Cloud Run executions via the same volume,
+# or falls back to /tmp if the script directory isn't writable (e.g. read-only container).
+_BURST_STATE_FILE = os.path.join(os.path.dirname(__file__), ".burst_state.json")
 
 # Tiers already covered by the standard Tier 1 / Tier 2.A scans
 MONITORED_TIERS = {"1. TARGET ACCOUNT", "Tier 1", "2.A", "Tier 2"}
@@ -140,8 +147,13 @@ def fetch_new_users(sf, lookback_cutoff: date, tier_filter: str = TIER1_FILTER) 
     on or after the lookback_cutoff date (midnight UTC). Uses an explicit
     calendar-date boundary instead of LAST_N_DAYS so consecutive daily runs
     never overlap — a user created on Tuesday is reported Tuesday and never again.
+
+    Both a lower AND upper bound are applied so the window is exactly one
+    calendar day. Without the upper bound a user created on day N would
+    re-appear on day N+1 (cutoff = N, user CreatedDate = N still matches).
     """
     since = lookback_cutoff.strftime("%Y-%m-%dT00:00:00Z")
+    until = date.today().strftime("%Y-%m-%dT00:00:00Z")
     return soql(sf, f"""
         SELECT Email__c,
                CreatedDate,
@@ -156,6 +168,7 @@ def fetch_new_users(sf, lookback_cutoff: date, tier_filter: str = TIER1_FILTER) 
         FROM Product_User__c
         WHERE Account__r.Account_Tier__c IN {tier_filter}
         AND CreatedDate >= {since}
+        AND CreatedDate < {until}
         ORDER BY Account__r.Name, CreatedDate DESC
     """)
 
@@ -180,7 +193,34 @@ def fetch_all_usage(sf, tier_filter: str = TIER1_FILTER) -> list:
     """)
 
 
-def detect_bursts(usage_records: list) -> dict:
+def _load_burst_state() -> dict:
+    """Load the burst cooldown state from disk. Returns {} if missing or unreadable."""
+    path = _BURST_STATE_FILE
+    if not os.path.exists(path):
+        path_tmp = "/tmp/.burst_state.json"
+        if not os.path.exists(path_tmp):
+            return {}
+        path = path_tmp
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_burst_state(state: dict) -> None:
+    """Persist burst cooldown state to disk."""
+    path = _BURST_STATE_FILE
+    try:
+        with open(path, "w") as f:
+            json.dump(state, f, indent=2)
+    except OSError:
+        path = "/tmp/.burst_state.json"
+        with open(path, "w") as f:
+            json.dump(state, f, indent=2)
+
+
+def detect_bursts(usage_records: list, dry_run: bool = False) -> dict:
     """
     Aggregate usage per account and return those that clear both burst gates:
       1. delta (total_7d − weekly_avg) >= MIN_BURST_DELTA
@@ -215,25 +255,48 @@ def detect_bursts(usage_records: list) -> dict:
         agg[acc_id]["total_7d"]  += int(r.get("API_Calls_Last_7_Days__c")  or 0)
         agg[acc_id]["total_30d"] += int(r.get("API_Calls_Last_30_Days__c") or 0)
 
+    state    = _load_burst_state()
+    today_s  = date.today().isoformat()
     bursts: dict = {}
+    state_dirty  = False
+
     for acc_id, acc in agg.items():
         if is_blocked(acc["name"]):
             continue
         total_7d   = acc["total_7d"]
         weekly_avg = acc["total_30d"] / 4
         delta      = total_7d - weekly_avg
-        if (weekly_avg > 0
+        if not (weekly_avg > 0
                 and delta >= MIN_BURST_DELTA
                 and total_7d >= weekly_avg * MIN_BURST_RATIO):
-            bursts[acc_id] = {
-                "name":        acc["name"],
-                "sf_id":       acc["sf_id"],
-                "owner_name":  acc["owner_name"],
-                "owner_email": acc["owner_email"],
-                "total_7d":    total_7d,
-                "weekly_avg":  round(weekly_avg, 1),
-                "delta":       int(delta),
-            }
+            continue
+
+        # Cooldown check — suppress if this account already fired within N days
+        last_fired = state.get(acc_id)
+        if last_fired:
+            days_since = (date.today() - date.fromisoformat(last_fired)).days
+            if days_since < BURST_COOLDOWN_DAYS:
+                print(f"  ⏸  Burst suppressed for {acc['name']} "
+                      f"(last fired {days_since}d ago, cooldown={BURST_COOLDOWN_DAYS}d)",
+                      file=sys.stderr)
+                continue
+
+        bursts[acc_id] = {
+            "name":        acc["name"],
+            "sf_id":       acc["sf_id"],
+            "owner_name":  acc["owner_name"],
+            "owner_email": acc["owner_email"],
+            "total_7d":    total_7d,
+            "weekly_avg":  round(weekly_avg, 1),
+            "delta":       int(delta),
+        }
+        state[acc_id] = today_s
+        state_dirty   = True
+
+    if state_dirty and not dry_run:
+        _save_burst_state(state)
+    elif state_dirty and dry_run:
+        print("  ℹ️  Dry-run: burst state NOT saved (cooldown unchanged)", file=sys.stderr)
 
     return bursts
 
@@ -1000,7 +1063,7 @@ def main():
 
         print("Fetching usage data for burst detection...")
         usage_records = fetch_all_usage(sf, tier_filter)
-        bursts = detect_bursts(usage_records)
+        bursts = detect_bursts(usage_records, dry_run=args.dry_run)
         print(f"  {len(bursts)} burst account(s) detected")
 
         if not records and not bursts:
