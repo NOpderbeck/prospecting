@@ -663,6 +663,38 @@ def _competitor_bar_chart(section: str, max_items: int = 5, bar_width: int = 10)
     return lines
 
 
+def _reformat_use_cases(text: str) -> str:
+    """Reformat Claude's bullet-style use cases into clean doc paragraphs:
+      - No leading bullet
+      - Bold header line
+      - Italic description (label stripped)
+      - Bold 'Accounts:' label
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            out.append("")
+            continue
+        # Top-level entry: "- **Name** — N accounts"  OR  "**Name** — N accounts"
+        m_top = re.match(r'^-?\s*\*\*(.+?)\*\*\s*(.*)', stripped)
+        sub = stripped.lstrip("- ").lstrip("◦").lstrip("• ").strip()
+        if m_top and not line.startswith((" ", "\t")):
+            label = m_top.group(1)
+            rest  = m_top.group(2).strip()
+            out.append(f"**{label}**{(' ' + rest) if rest else ''}")
+        elif re.match(r'^(What they.re trying to accomplish|Description)\s*:\s*', sub, re.I):
+            # Strip the label, italicize the description
+            desc = re.sub(r'^(What they.re trying to accomplish|Description)\s*:\s*', '', sub, flags=re.I)
+            out.append(f"_{desc}_")
+        elif re.match(r'^Accounts?\s*:', sub, re.I):
+            accts = re.sub(r'^Accounts?\s*:\s*', '', sub, flags=re.I)
+            out.append(f"**Accounts:** {accts}")
+        else:
+            out.append(stripped)
+    return "\n".join(out)
+
+
 def _extract_use_cases_brief(use_cases_text: str, max_items: int = 5) -> list[str]:
     """Top use case names with account count from the use cases section."""
     results = []
@@ -994,9 +1026,11 @@ def _parse_inline_formats(text: str, url_dict: dict) -> tuple[str, list]:
     """
     formats: list[tuple[int, int, str]] = []
 
-    # Walk character-by-character, stripping ** and recording bold ranges
+    # Walk character-by-character, stripping ** / _ markers and recording bold/italic ranges
     result: list[str] = []
-    i, bold_start = 0, None
+    i = 0
+    bold_start: int | None = None
+    italic_start: int | None = None
     while i < len(text):
         if text[i:i+2] == "**":
             if bold_start is None:
@@ -1005,6 +1039,13 @@ def _parse_inline_formats(text: str, url_dict: dict) -> tuple[str, list]:
                 formats.append((bold_start, len(result), "bold"))
                 bold_start = None
             i += 2
+        elif text[i] == "_" and (i == 0 or not text[i-1].isalnum()):
+            if italic_start is None:
+                italic_start = len(result)
+            else:
+                formats.append((italic_start, len(result), "italic"))
+                italic_start = None
+            i += 1
         else:
             result.append(text[i])
             i += 1
@@ -1579,7 +1620,7 @@ def get_or_create_doc(docs_svc, drive_svc, title: str) -> str:
 
 _SECTION_ORDER = [
     "executive summary",
-    "use cases",
+    "top use cases",
     "product gaps",
     "capability wins",
     "feature opportunities",
@@ -1911,7 +1952,7 @@ def main():
 
     # Merge use cases section into analysis for rendering (inserted after Executive Summary)
     if use_cases:
-        uc_section = f"\n\n## Use Cases\n\n{use_cases}"
+        uc_section = f"\n\n## Top Use Cases\n\n{_reformat_use_cases(use_cases)}"
         m_exec = re.search(r'\n(?=## (?!Executive Summary))', analysis)
         if m_exec:
             analysis_with_uc = analysis[:m_exec.start()] + uc_section + analysis[m_exec.start():]
