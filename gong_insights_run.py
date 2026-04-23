@@ -533,7 +533,8 @@ def _extract_counts(section: str, max_items: int = 4) -> list[tuple[str, int]]:
             continue
         m_count = re.search(r'(\d+)\s+(?:mention|occurrence)', line)
         count = int(m_count.group(1)) if m_count else 0
-        items.append((m_label.group(1), count))
+        label = re.sub(r'\s*\([^)]*\)', '', m_label.group(1)).strip()
+        items.append((label, count))
     items.sort(key=lambda x: -x[1])
     return items[:max_items]
 
@@ -552,7 +553,7 @@ def _extract_gaps_brief(section: str, max_items: int = 4) -> list[str]:
         m_impact = re.search(r'Impact:\s*(\w+)', line)
         count_str  = f" ×{m_count.group(1)}" if m_count else ""
         impact_str = f" [{m_impact.group(1)}]" if m_impact else ""
-        results.append(f"• *{label}*{count_str}{impact_str}")
+        results.append(f"• {label}{count_str}{impact_str}")
         if len(results) >= max_items:
             break
     return results
@@ -570,7 +571,7 @@ def _extract_objections_brief(section: str, max_items: int = 3) -> list[str]:
         label = m.group(1).strip('"')
         m_stage = re.search(r'Stage:\s*([^|]+)', line)
         stage_str = f"  _{m_stage.group(1).strip()}_" if m_stage else ""
-        results.append(f"• *{label}*{stage_str}")
+        results.append(f"• {label}{stage_str}")
         if len(results) >= max_items:
             break
     return results
