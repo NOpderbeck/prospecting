@@ -530,88 +530,52 @@ def _extract_counts(section: str, max_items: int = 4) -> list[tuple[str, int]]:
     return items[:max_items]
 
 
-def _extract_gaps_with_context(section: str, max_items: int = 4) -> list[str]:
-    """
-    Return gap items as 'Theme ×N — normalized need (blocking: yes/no)'.
-    Pulls the 'Normalized need:' and 'Blocking deal?' sub-bullets for context.
-    """
-    lines = section.split("\n")
+def _extract_gaps_brief(section: str, max_items: int = 4) -> list[str]:
+    """Gap items as '• Theme ×N [Impact]' — no descriptions."""
     results = []
-    i = 0
-    while i < len(lines) and len(results) < max_items:
-        m_label = re.match(r'^- \*\*(.+?)\*\*', lines[i].strip())
-        if m_label:
-            label   = m_label.group(1)
-            m_count = re.search(r'(\d+)\s+mention', lines[i])
-            count   = int(m_count.group(1)) if m_count else 0
-            m_impact = re.search(r'Impact:\s*(\w+)', lines[i])
-            impact  = m_impact.group(1) if m_impact else ""
-
-            need = ""
-            blocking = ""
-            # Scan sub-bullets (indented lines) until next top-level bullet
-            j = i + 1
-            while j < len(lines):
-                sub = lines[j].strip()
-                if re.match(r'^- \*\*', sub):
-                    break
-                if sub.lower().startswith("- normalized need:"):
-                    need = re.sub(r'^-\s*normalized need:\s*', '', sub, flags=re.IGNORECASE).strip()
-                    need = re.sub(r'\*\*(.+?)\*\*', r'\1', need)
-                elif sub.lower().startswith("- blocking deal?"):
-                    blocking = re.sub(r'^-\s*blocking deal\?\s*', '', sub, flags=re.IGNORECASE).strip()
-                j += 1
-
-            count_str = f" ×{count}" if count else ""
-            impact_str = f" [{impact}]" if impact else ""
-            ctx_parts = []
-            if need:
-                ctx_parts.append(need.rstrip("."))
-            if blocking and blocking.lower() not in ("no", "unknown", ""):
-                # Trim verbose parentheticals e.g. "yes (for eu-regulated accounts)" → "yes"
-                blocking_short = re.sub(r'\s*\(.*?\)', '', blocking, flags=re.IGNORECASE).strip()
-                ctx_parts.append(f"_blocking_" if blocking_short.lower() == "yes" else f"_blocking: {blocking_short.lower()}_")
-            ctx = " — " + " · ".join(ctx_parts) if ctx_parts else ""
-            results.append(f"• *{label}*{count_str}{impact_str}{ctx}")
-            i = j
-        else:
-            i += 1
+    for line in section.split("\n"):
+        m = re.match(r'^- \*\*(.+?)\*\*', line.strip())
+        if not m:
+            continue
+        label = m.group(1)
+        m_count  = re.search(r'(\d+)\s+mention', line)
+        m_impact = re.search(r'Impact:\s*(\w+)', line)
+        count_str  = f" ×{m_count.group(1)}" if m_count else ""
+        impact_str = f" [{m_impact.group(1)}]" if m_impact else ""
+        results.append(f"• *{label}*{count_str}{impact_str}")
+        if len(results) >= max_items:
+            break
     return results
 
 
-def _extract_objections_with_context(section: str, max_items: int = 3) -> list[str]:
-    """
-    Return objections as 'Theme (stage) — root cause'.
-    Pulls 'Stage:' from the header line and 'Root cause:' sub-bullet.
-    """
-    lines = section.split("\n")
+def _extract_objections_brief(section: str, max_items: int = 3) -> list[str]:
+    """Objection items as '• Theme  _stage_' — no root cause / description."""
     results = []
-    i = 0
-    while i < len(lines) and len(results) < max_items:
-        m_label = re.match(r'^- \*\*(.+?)\*\*', lines[i].strip())
-        if m_label:
-            label = m_label.group(1).strip('"')
-            m_stage = re.search(r'Stage:\s*([^|]+)', lines[i])
-            stage   = m_stage.group(1).strip() if m_stage else ""
-
-            root_cause = ""
-            j = i + 1
-            while j < len(lines):
-                sub = lines[j].strip()
-                if re.match(r'^- \*\*', sub):
-                    break
-                if sub.lower().startswith("- root cause:"):
-                    root_cause = re.sub(r'^-\s*root cause:\s*', '', sub, flags=re.IGNORECASE).strip()
-                    root_cause = re.sub(r'\*\*(.+?)\*\*', r'\1', root_cause)
-                j += 1
-
-            stage_str = f" _{stage}_" if stage else ""
-            ctx = f" — {root_cause}" if root_cause else ""
-            results.append(f"• *{label}*{stage_str}{ctx}")
-            i = j
-        else:
-            i += 1
+    for line in section.split("\n"):
+        m = re.match(r'^- \*\*(.+?)\*\*', line.strip())
+        if not m:
+            continue
+        label = m.group(1).strip('"')
+        m_stage = re.search(r'Stage:\s*([^|]+)', line)
+        stage_str = f"  _{m_stage.group(1).strip()}_" if m_stage else ""
+        results.append(f"• *{label}*{stage_str}")
+        if len(results) >= max_items:
+            break
     return results
+
+
+def _competitor_bar_chart(section: str, max_items: int = 5, bar_width: int = 10) -> list[str]:
+    """Render competitors as Unicode bar chart lines, sorted descending by count."""
+    items = _extract_counts(section, max_items)
+    if not items:
+        return []
+    max_count = max(c for _, c in items) or 1
+    lines = []
+    for label, count in items:
+        bars = round((count / max_count) * bar_width)
+        bar = "█" * bars + "░" * (bar_width - bars)
+        lines.append(f"`{bar}` *{label}* ×{count}" if count else f"`{'░' * bar_width}` *{label}*")
+    return lines
 
 
 def build_slack_message(analysis: str, calls_count: int, accounts_count: int,
@@ -620,28 +584,25 @@ def build_slack_message(analysis: str, calls_count: int, accounts_count: int,
     start = end - timedelta(days=days - 1)
     date_range = f"{start.strftime('%b %-d')}–{end.strftime('%-d, %Y')}"
 
-    gaps_lines  = _extract_gaps_with_context(_extract_section(analysis, "Product Gaps"), 4)
-    obj_lines   = _extract_objections_with_context(_extract_section(analysis, "Objection Analysis"), 3)
-    competitors = _extract_counts(_extract_section(analysis, "Competitive Landscape"), 4)
-    wins        = _top_items(_extract_section(analysis, "Capability Wins"), 3)
-
-    comp_str = " · ".join(
-        f"{label} ×{count}" if count else label for label, count in competitors
-    ) or "—"
-    wins_str = " · ".join(wins) or "—"
+    wins_lines = [f"• {w}" for w in _top_items(_extract_section(analysis, "Capability Wins"), 3)] or ["—"]
+    gap_lines  = _extract_gaps_brief(_extract_section(analysis, "Product Gaps"), 4) or ["—"]
+    obj_lines  = _extract_objections_brief(_extract_section(analysis, "Objection Analysis"), 3) or ["—"]
+    comp_lines = _competitor_bar_chart(_extract_section(analysis, "Competitive Landscape"), 5) or ["—"]
 
     lines = [
         f"*📊 Gong Insights — {date_range}*  _{calls_count} calls · {accounts_count} accounts_",
         "",
+        "*✅ What's Landing*",
+        *wins_lines,
+        "",
         "*🔧 Top Gaps*",
-        *gaps_lines,
+        *gap_lines,
         "",
         "*🚧 Objections*",
         *obj_lines,
         "",
-        f"*✅ What's Landing:* {wins_str}",
-        "",
-        f"*🏁 Competitors:* {comp_str}",
+        "*🏁 Competitors*",
+        *comp_lines,
         "",
         f"📄 *<{doc_url}|Full Report>*",
     ]
