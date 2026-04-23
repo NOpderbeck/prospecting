@@ -1376,7 +1376,7 @@ def add_table_of_contents(docs_svc, doc_id: str,
     # Insert "Accounts mentioned" section immediately after the TOC block
     if account_names:
         names_str = ", ".join(sorted(set(account_names), key=str.lower))
-        label     = "Prospects/Customers: "
+        label     = "Prospects/Customers mentioned in this report: "
         body      = names_str
         acct_text = f"\n{label}{body}\n"
         # Position is right after the TOC text we already inserted
