@@ -505,11 +505,16 @@ def _extract_section(analysis: str, heading: str) -> str:
     return m.group(1) if m else ""
 
 
+_BOLD_ITEM = re.compile(r'^(?:- )?\*\*(?:\d+\.\s+)?(.+?)\*\*')
+
+
 def _top_items(section: str, max_items: int = 4) -> list[str]:
-    """Bold-labeled top-level bullets only (lines matching '- **label**')."""
+    """Bold-labeled top-level bullets (handles '- **label**' and '**N. label**' formats)."""
     items = []
     for line in section.split("\n"):
-        m = re.match(r'^- \*\*(.+?)\*\*', line.strip())
+        if line.startswith((" ", "\t")):
+            continue
+        m = _BOLD_ITEM.match(line.strip())
         if m:
             items.append(m.group(1))
         if len(items) >= max_items:
@@ -521,7 +526,9 @@ def _extract_counts(section: str, max_items: int = 4) -> list[tuple[str, int]]:
     """Bold-labeled bullets with count, sorted descending. Returns (label, count) list."""
     items = []
     for line in section.split("\n"):
-        m_label = re.match(r'^- \*\*(.+?)\*\*', line.strip())
+        if line.startswith((" ", "\t")):
+            continue
+        m_label = _BOLD_ITEM.match(line.strip())
         if not m_label:
             continue
         m_count = re.search(r'(\d+)\s+(?:mention|occurrence)', line)
@@ -535,7 +542,9 @@ def _extract_gaps_brief(section: str, max_items: int = 4) -> list[str]:
     """Gap items as '• Theme ×N [Impact]' — no descriptions."""
     results = []
     for line in section.split("\n"):
-        m = re.match(r'^- \*\*(.+?)\*\*', line.strip())
+        if line.startswith((" ", "\t")):
+            continue
+        m = _BOLD_ITEM.match(line.strip())
         if not m:
             continue
         label = m.group(1)
@@ -553,7 +562,9 @@ def _extract_objections_brief(section: str, max_items: int = 3) -> list[str]:
     """Objection items as '• Theme  _stage_' — no root cause / description."""
     results = []
     for line in section.split("\n"):
-        m = re.match(r'^- \*\*(.+?)\*\*', line.strip())
+        if line.startswith((" ", "\t")):
+            continue
+        m = _BOLD_ITEM.match(line.strip())
         if not m:
             continue
         label = m.group(1).strip('"')
