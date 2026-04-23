@@ -290,9 +290,10 @@ Cluster related requests into themes. For each:
 ## Objection Analysis
 For each objection type:
 - **[Objection]** — {n_placeholder} occurrences | Stage: [funnel stage]
-  - Quote: "exact customer words" — [Account], [Date]
-  - Root cause: [classification]
+  - Root cause: [one-sentence classification]
   - Mitigation: [suggested product or GTM response]
+  - Quote: "exact customer words" — [Account], [Date]
+  - Accounts: [comma-separated list]
 
 ## Capability Wins
 Where customers reacted positively to existing capabilities. For each:
@@ -981,6 +982,29 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                         label + acct, N, False,
                         [(0, len(label) - 1, "bold")],
                     )
+        # Combine root_cause + mitigation into one paragraph (Objection Analysis)
+        rc  = pending_entry.get("root_cause")  # (plain, fmts)
+        mit = pending_entry.get("mitigation")  # (plain, fmts)
+        if rc or mit:
+            if rc and mit:
+                sep = " Mitigation: "
+                text = rc[0] + sep + mit[0]
+                fmts = list(rc[1])
+                mit_label_start = len(rc[0]) + 1          # space before "Mitigation:"
+                mit_label_end   = mit_label_start + len("Mitigation:")
+                fmts.append((mit_label_start, mit_label_end, "bold"))
+                offset = len(rc[0]) + len(sep)
+                for s, e, f in mit[1]:
+                    fmts.append((s + offset, e + offset, f))
+            elif rc:
+                text, fmts = rc[0], list(rc[1])
+            else:
+                text  = "Mitigation: " + mit[0]
+                fmts  = [(0, len("Mitigation:"), "bold")]
+                for s, e, f in mit[1]:
+                    fmts.append((s + len("Mitigation: "), e + len("Mitigation: "), f))
+            add(text, N, False, fmts)
+
         add_norm = pending_entry.get("norm")
         add_why  = pending_entry.get("why")
         quotes   = pending_entry.get("quotes", [])
@@ -1134,6 +1158,16 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                     [(0, len(label) - 1, "bold")],
                 )
                 flush_entry()
+                return True
+            if re.match(r'^Root cause:\s*', raw, re.IGNORECASE):
+                stripped = re.sub(r'^Root cause:\s*', '', raw, flags=re.IGNORECASE)
+                plain, fmts = _parse_inline_formats(stripped, url_dict)
+                pending_entry["root_cause"] = (plain, fmts)
+                return True
+            if re.match(r'^Mitigation:\s*', raw, re.IGNORECASE):
+                stripped = re.sub(r'^Mitigation:\s*', '', raw, flags=re.IGNORECASE)
+                plain, fmts = _parse_inline_formats(stripped, url_dict)
+                pending_entry["mitigation"] = (plain, fmts)
                 return True
             if re.match(r'^Blocking deal', raw, re.IGNORECASE):
                 flush_entry()
