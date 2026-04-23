@@ -298,8 +298,8 @@ For each objection type:
 ## Capability Wins
 Where customers reacted positively to existing capabilities. For each:
 - **[Capability]**
-  - Why it mattered: [one-sentence description of why this resonated]
   - Quote: "exact customer words" — [Account], [Date]
+  - Why it mattered: [one-sentence description of why this resonated]
 
 ## Competitive Landscape
 For each competitor mentioned:
@@ -982,34 +982,20 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                         label + acct, N, False,
                         [(0, len(label) - 1, "bold")],
                     )
-        # Combine root_cause + mitigation into one paragraph (Objection Analysis)
-        rc  = pending_entry.get("root_cause")  # (plain, fmts)
-        mit = pending_entry.get("mitigation")  # (plain, fmts)
-        if rc or mit:
-            if rc and mit:
-                sep = " Mitigation: "
-                text = rc[0] + sep + mit[0]
-                fmts = list(rc[1])
-                mit_label_start = len(rc[0]) + 1          # space before "Mitigation:"
-                mit_label_end   = mit_label_start + len("Mitigation:")
-                fmts.append((mit_label_start, mit_label_end, "bold"))
-                offset = len(rc[0]) + len(sep)
-                for s, e, f in mit[1]:
-                    fmts.append((s + offset, e + offset, f))
-            elif rc:
-                text, fmts = rc[0], list(rc[1])
-            else:
-                text  = "Mitigation: " + mit[0]
-                fmts  = [(0, len("Mitigation:"), "bold")]
-                for s, e, f in mit[1]:
-                    fmts.append((s + len("Mitigation: "), e + len("Mitigation: "), f))
-            add(text, N, False, fmts)
+        # Root cause and mitigation as separate plain lines (Objection Analysis)
+        rc  = pending_entry.get("root_cause")
+        mit = pending_entry.get("mitigation")
+        if rc:
+            add(rc[0], N, False, rc[1])
+        if mit:
+            add(mit[0], N, False, mit[1])
 
-        add_norm = pending_entry.get("norm")
-        add_why  = pending_entry.get("why")
-        quotes   = pending_entry.get("quotes", [])
-        extras   = pending_entry.get("extra", [])
-        accounts = pending_entry.get("accounts")
+        add_norm      = pending_entry.get("norm")
+        add_why       = pending_entry.get("why")
+        add_why_after = pending_entry.get("why_after")
+        quotes        = pending_entry.get("quotes", [])
+        extras        = pending_entry.get("extra", [])
+        accounts      = pending_entry.get("accounts")
         if add_norm:
             add(*add_norm)
         if add_why:
@@ -1018,6 +1004,8 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
             add(*q_tuple)
             if c_tuple:
                 add(*c_tuple)
+        if add_why_after:
+            add(*add_why_after)
         for txt, style, bold, fmts in extras:
             prefix = "• "
             shifted = [(s + len(prefix), e + len(prefix), f) for s, e, f in fmts]
@@ -1147,10 +1135,12 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 plain, fmts = _parse_inline_formats(stripped, url_dict)
                 pending_entry["norm"] = (plain, N, False, fmts)
                 return True
-            if re.match(r'^Why it matters:\s*', raw, re.IGNORECASE):
-                stripped = re.sub(r'^Why it matters:\s*', '', raw, flags=re.IGNORECASE)
+            if re.match(r'^Why it matter', raw, re.IGNORECASE):
+                stripped = re.sub(r'^Why it matter[^:]*:\s*', '', raw, flags=re.IGNORECASE)
                 plain, fmts = _parse_inline_formats(stripped, url_dict)
-                pending_entry["why"] = (plain, N, False, fmts)
+                # Capability Wins: description goes AFTER the quote
+                key = "why_after" if current_section == "capability wins" else "why"
+                pending_entry[key] = (plain, N, False, fmts)
                 return True
             if re.match(r'^Accounts?:\s*', raw, re.IGNORECASE):
                 accts = re.sub(r'^Accounts?:\s*', '', raw, flags=re.IGNORECASE).strip()
