@@ -58,15 +58,11 @@ _INTERNAL_TITLE_RE = re.compile(
 
 
 def _is_likely_external(call: dict) -> bool:
-    """Return True if the call appears to be with an external party."""
+    """Return True only if the call has a CRM account linked (primaryAccount set).
+    Calls with no CRM account are excluded — they are almost always internal."""
     meta         = call.get("metaData") or {}
     account_name = (meta.get("primaryAccount") or {}).get("name") or ""
-    if account_name:
-        return True
-    title = (call.get("title") or "").strip()
-    if _INTERNAL_TITLE_RE.search(title):
-        return False
-    return True  # no CRM account but title doesn't look internal — include
+    return bool(account_name.strip())
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +262,13 @@ Rules:
 ANALYSIS_PROMPT = """\
 Analyze the following Gong call transcripts (past {days} days, {n} calls).
 
+CRITICAL RULE — ACCOUNT NAMES: Every transcript header contains a line:
+  "- Account: <name>"
+You MUST use that exact name (e.g. "OWKIN", "Mutiny HQ") wherever you reference
+that account throughout the report. Never use a nickname, abbreviation, or any
+name that appears in the conversation text instead. The header field is the
+sole source of truth.
+
 {transcripts}
 
 ---
@@ -321,7 +324,7 @@ Include ALL extracted quotes with source info.
 ---
 Main sections (Executive Summary through Competitive Landscape): max 2,000 words.
 Every insight must cite the account it came from. Cover all accounts represented in the transcripts — do not omit any.
-IMPORTANT: Always use the exact account name from the "Account:" field in the transcript header (e.g. "OWKIN", "Mutiny HQ"). Never substitute a company name mentioned in conversation — the header field is the source of truth.
+Reminder: use the "Account:" header field name only — never a name from the conversation text.
 Use bullet points throughout. No filler.\
 """
 
