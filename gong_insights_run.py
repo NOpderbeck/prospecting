@@ -281,6 +281,12 @@ For each gap theme:
 
 Rank descending by (frequency × impact).
 
+## Capability Wins
+Where customers reacted positively to existing capabilities. For each:
+- **[Capability]**
+  - Quote: "exact customer words" — [Account], [Date]
+  - Why it mattered: [one-sentence description of why this resonated]
+
 ## Feature Opportunities
 Cluster related requests into themes. For each:
 - **[Theme]** — signal: Early / Repeated / Strong demand
@@ -294,12 +300,6 @@ For each objection type:
   - Mitigation: [suggested product or GTM response]
   - Quote: "exact customer words" — [Account], [Date]
   - Accounts: [comma-separated list]
-
-## Capability Wins
-Where customers reacted positively to existing capabilities. For each:
-- **[Capability]**
-  - Quote: "exact customer words" — [Account], [Date]
-  - Why it mattered: [one-sentence description of why this resonated]
 
 ## Competitive Landscape
 For each competitor mentioned:
