@@ -1199,51 +1199,55 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 plain, fmts = _parse_inline_formats(raw, url_dict)
                 flush_entry()
 
-                # Capability Wins old single-line format:
-                #   **Title** — "quote" — citation, YYYY-MM-DD — description
-                # Split into header + pending sub-items so flush_entry renders
-                # them as separate paragraphs.
+                # Capability Wins: split old single-line format into separate paragraphs.
+                # Handles both:
+                #   **Title** — "quote" — Account, YYYY-MM-DD — description
+                #   **Title** — "quote" — description (no date citation)
+                _split_done = False
                 if current_section == "capability wins":
-                    _cw_sep = " \u2014 "
-                    _ti = plain.find(_cw_sep)
-                    if _ti < 0:
-                        _cw_sep = " - "
-                        _ti = plain.find(_cw_sep)
-                    if _ti > 0:
-                        _title = plain[:_ti]
-                        _rest  = plain[_ti + len(_cw_sep):]
-                        _qm    = re.search(r'[\u201c"](.*?)[\u201d"]', _rest)
+                    _cw_ti = plain.find(" \u2014 ")
+                    if _cw_ti > 0:
+                        _title   = plain[:_cw_ti]
+                        _rest    = plain[_cw_ti + 3:]   # skip " — "
+                        _qm      = re.search(r'["\u201c](.*?)["\u201d]', _rest)
                         if _qm:
                             _q_body  = _rest[_qm.start():_qm.end()]
                             _after_q = _rest[_qm.end():].strip()
+                            _url     = next((f for _, _, f in fmts
+                                             if isinstance(f, str)
+                                             and f.startswith("http")), None)
+                            # Try to extract Account, YYYY-MM-DD citation
                             _cit_m   = re.match(
-                                r'^\u2014?\s*([^\u2014]+,\s*\d{4}-\d{2}-\d{2})\s*(?:\u2014\s*)?',
+                                r'^\u2014?\s*([^\u2014]+,\s*\d{4}-\d{2}-\d{2})'
+                                r'\s*(?:\u2014\s*)?',
                                 _after_q)
                             if _cit_m:
                                 _cit  = _cit_m.group(1).strip()
                                 _desc = _after_q[_cit_m.end():].strip()
-                                _url  = next((f for _, _, f in fmts
-                                              if isinstance(f, str)
-                                              and f.startswith("http")), None)
                                 _cf   = [(0, len(_cit), _url)] if _url else []
                                 pending_entry.setdefault("quotes", []).append(
                                     ((_q_body, N, False, [(0, len(_q_body), "italic")]),
                                      (_cit, N, False, _cf))
                                 )
-                                if _desc:
-                                    pending_entry["why_after"] = (_desc, N, False, [])
-                                add(_title.upper(), N, False, [])
-                                continue
+                            else:
+                                # No date citation — everything after quote is description
+                                _desc = re.sub(r'^\u2014\s*', '', _after_q)
+                                pending_entry.setdefault("quotes", []).append(
+                                    ((_q_body, N, False, [(0, len(_q_body), "italic")]),
+                                     None)
+                                )
+                            if _desc:
+                                pending_entry["why_after"] = (_desc, N, False, [])
+                            add(_title.upper(), N, False, [])
+                            _split_done = True
 
-                # Generic header: uppercase label before ' — '
-                sep = " \u2014 "
-                idx = plain.find(sep)
-                if idx < 0:
-                    sep = " - "
+                if not _split_done:
+                    # Generic header: uppercase label before ' — '
+                    sep = " \u2014 "
                     idx = plain.find(sep)
-                display = (plain[:idx].upper() + " \u2014 " + plain[idx + len(sep):]) \
-                          if idx >= 0 else plain.upper()
-                add(display, N, False, fmts)
+                    display = (plain[:idx].upper() + sep + plain[idx + len(sep):]) \
+                              if idx >= 0 else plain.upper()
+                    add(display, N, False, fmts)
             else:
                 plain, fmts = _parse_inline_formats(raw, url_dict)
                 prefix = "• "
