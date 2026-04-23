@@ -307,6 +307,9 @@ summary line. EXACTLY these sections in order:
 Product should do differently because of this week's calls.
 
 ## Product Gaps (Ranked by Frequency & Impact)
+COUNTING RULE: "mentions" = number of distinct accounts that raised this gap.
+Multiple quotes from the same call count as 1. Do not inflate counts by quoting
+the same account twice.
 For each gap theme:
 - **[Theme]** — {n_placeholder} mentions | Impact: High / Medium / Low
   - Quote: "exact customer words" — [Account], [Date]
@@ -328,6 +331,7 @@ Cluster related requests into themes. For each:
   - Why it matters: [context]
 
 ## Objection Analysis
+COUNTING RULE: "occurrences" = distinct accounts that raised this objection.
 For each objection type:
 - **[Objection]** — {n_placeholder} occurrences | Stage: [funnel stage]
   - Root cause: [one-sentence classification]
@@ -336,6 +340,7 @@ For each objection type:
   - Accounts: [comma-separated list]
 
 ## Competitive Landscape
+COUNTING RULE: "mentions" = distinct accounts that mentioned this competitor.
 For each competitor mentioned:
 - **[Competitor]** — {n_placeholder} mentions
   - Context: evaluation / replacement / comparison / dissatisfaction
