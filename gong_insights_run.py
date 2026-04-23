@@ -602,7 +602,7 @@ def build_slack_message(analysis: str, calls_count: int, accounts_count: int,
         "*🚧 Objections*",
         *obj_lines,
         "",
-        "*🏁 Competitors*",
+        "*🏁 Competitor mentions*",
         *comp_lines,
         "",
         f"📄 *<{doc_url}|Full Report>*",
@@ -1378,17 +1378,27 @@ def add_table_of_contents(docs_svc, doc_id: str,
         names_str = ", ".join(sorted(set(account_names), key=str.lower))
         label     = "Prospects/Customers mentioned in this report: "
         body      = names_str
-        acct_text = f"\n{label}{body}\n"
+        acct_text = f"{label}{body}\n"
         # Position is right after the TOC text we already inserted
         acct_pos  = insert_pos + _utf16_len(toc_text)
         _batch_update(docs_svc, doc_id, [
             {"insertText": {"location": {"index": acct_pos}, "text": acct_text}}
         ])
         # Style: bold+italic label, italic body, 10pt, no spacing gap
-        label_start = acct_pos + 1          # skip leading \n
+        label_start = acct_pos              # no leading \n
         label_end   = label_start + _utf16_len(label)
         body_end    = label_end + _utf16_len(body)
+        # Zero out spacing on the blank paragraph before this line (the gap after TOC)
+        blank_para_pos = max(1, acct_pos - 1)
         _batch_update(docs_svc, doc_id, [
+            {"updateParagraphStyle": {
+                "range": {"startIndex": blank_para_pos, "endIndex": acct_pos},
+                "paragraphStyle": {
+                    "spaceAbove": {"magnitude": 0, "unit": "PT"},
+                    "spaceBelow": {"magnitude": 0, "unit": "PT"},
+                },
+                "fields": "spaceAbove,spaceBelow",
+            }},
             # Whole line: 10pt italic, no spacing
             {"updateTextStyle": {
                 "range": {"startIndex": label_start, "endIndex": body_end},
