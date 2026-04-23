@@ -397,6 +397,39 @@ def analyze_with_claude(config: dict, transcript_texts: list[str],
     return resp.content[0].text
 
 
+USE_CASE_PROMPT = """\
+Based on the product intelligence report below, identify the 5–7 most common
+top-level use cases customers are deploying or evaluating the Search/Research API for.
+
+Focus on the business workflow or job-to-be-done — NOT the feature requests.
+Good: "Competitive intelligence automation for sales reps"
+Bad: "Research API with freshness and structured output"
+
+COUNTING RULE: N accounts = distinct companies, not individual quotes.
+
+For each use case, output exactly:
+- **[Use Case Name]** — N accounts
+  - What they're trying to accomplish: [one sentence describing the workflow/outcome]
+  - Accounts: [comma-separated list]
+
+Order by number of accounts descending. No preamble, no section header — output the bullets only.
+
+Report:
+{analysis}
+"""
+
+
+def extract_use_cases(config: dict, analysis: str) -> str:
+    """Run a lightweight second Claude call to extract top use cases from the analysis."""
+    client = anthropic.Anthropic(api_key=config["anthropic_api_key"])
+    resp = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": USE_CASE_PROMPT.format(analysis=analysis)}],
+    )
+    return resp.content[0].text.strip()
+
+
 # ---------------------------------------------------------------------------
 # Cache: save / load
 # ---------------------------------------------------------------------------
@@ -492,9 +525,11 @@ def build_owner_map_from_calls(calls: list[dict]) -> dict[str, str]:
 
 def save_cache(out_dir: Path, today: str, analysis: str,
                calls_count: int, accounts_count: int, days: int,
-               owner_map: dict[str, str] | None = None) -> Path:
+               owner_map: dict[str, str] | None = None,
+               use_cases: str = "") -> Path:
     cache = {
         "analysis":       analysis,
+        "use_cases":      use_cases,
         "calls_count":    calls_count,
         "accounts_count": accounts_count,
         "date":           today,
@@ -522,6 +557,8 @@ def load_cache(cache_file: str) -> dict:
         data["accounts_count"] = count_accounts_from_analysis(data["analysis"])
     if "owner_map" not in data:
         data["owner_map"] = {}
+    if "use_cases" not in data:
+        data["use_cases"] = ""
     print(f"  Loaded cache: {data['calls_count']} calls, "
           f"{data['accounts_count']} accounts, date={data['date']}, days={data['days']}")
     return data
@@ -626,12 +663,32 @@ def _competitor_bar_chart(section: str, max_items: int = 5, bar_width: int = 10)
     return lines
 
 
+def _extract_use_cases_brief(use_cases_text: str, max_items: int = 5) -> list[str]:
+    """Top use case names with account count from the use cases section."""
+    results = []
+    for line in use_cases_text.split("\n"):
+        if line.startswith((" ", "\t")):
+            continue
+        m = _BOLD_ITEM.match(line.strip())
+        if not m:
+            continue
+        label = m.group(1)
+        m_count = re.search(r'(\d+)\s+account', line)
+        count_str = f" ×{m_count.group(1)}" if m_count else ""
+        results.append(f"• {label}{count_str}")
+        if len(results) >= max_items:
+            break
+    return results
+
+
 def build_slack_message(analysis: str, calls_count: int, accounts_count: int,
-                        days: int, today: str, doc_url: str) -> str:
+                        days: int, today: str, doc_url: str,
+                        use_cases: str = "") -> str:
     end   = date.fromisoformat(today)
     start = end - timedelta(days=days - 1)
     date_range = f"{start.strftime('%b %-d')}–{end.strftime('%-d, %Y')}"
 
+    uc_lines   = _extract_use_cases_brief(use_cases, 5) if use_cases else []
     wins_lines = [f"• {w}" for w in _top_items(_extract_section(analysis, "Capability Wins"), 3)] or ["—"]
     gap_lines  = _extract_gaps_brief(_extract_section(analysis, "Product Gaps"), 4) or ["—"]
     obj_lines  = _extract_objections_brief(_extract_section(analysis, "Objection Analysis"), 3) or ["—"]
@@ -640,6 +697,10 @@ def build_slack_message(analysis: str, calls_count: int, accounts_count: int,
     lines = [
         f"*📊 Gong Insights — {date_range}*  _{calls_count} calls · {accounts_count} accounts_",
         "",
+    ]
+    if uc_lines:
+        lines += ["*🎯 Top Use Cases*", *uc_lines, ""]
+    lines += [
         "*✅ What's Landing*",
         *wins_lines,
         "",
@@ -1518,6 +1579,7 @@ def get_or_create_doc(docs_svc, drive_svc, title: str) -> str:
 
 _SECTION_ORDER = [
     "executive summary",
+    "use cases",
     "product gaps",
     "capability wins",
     "feature opportunities",
@@ -1746,6 +1808,10 @@ def main():
         today           = cache["date"]
         days            = cache["days"]
         gong_owner_map  = cache.get("owner_map") or {}
+        use_cases       = cache.get("use_cases") or ""
+        if not use_cases:
+            print("  Extracting use cases ...")
+            use_cases = extract_use_cases(config, analysis)
     else:
         days  = args.days
         today = date.today().isoformat()
@@ -1794,6 +1860,9 @@ def main():
             count_accounts_from_analysis(analysis),
         )
 
+        print("  Extracting use cases ...")
+        use_cases = extract_use_cases(config, analysis)
+
         # Save markdown + cache
         md_path = out_dir / f"gong_insights_{today}.md"
         header = (f"# Gong Product Intelligence Report\n"
@@ -1803,7 +1872,7 @@ def main():
         print(f"\n  Markdown saved → {md_path}")
 
         cache_path = save_cache(out_dir, today, analysis, calls_count, accounts_count, days,
-                                owner_map=gong_owner_map)
+                                owner_map=gong_owner_map, use_cases=use_cases)
         print(f"  Re-run with: python gong_insights_run.py --from-cache {cache_path}")
 
     # ── Phase 2: Publish ─────────────────────────────────────────────────────
@@ -1840,17 +1909,29 @@ def main():
     date_range = f"{start_date.strftime('%b %-d')}–{end_date.strftime('%-d, %Y')}"
     doc_title  = f"Gong Product Intelligence — {date_range}"
 
+    # Merge use cases section into analysis for rendering (inserted after Executive Summary)
+    if use_cases:
+        uc_section = f"\n\n## Use Cases\n\n{use_cases}"
+        m_exec = re.search(r'\n(?=## (?!Executive Summary))', analysis)
+        if m_exec:
+            analysis_with_uc = analysis[:m_exec.start()] + uc_section + analysis[m_exec.start():]
+        else:
+            analysis_with_uc = analysis + uc_section
+    else:
+        analysis_with_uc = analysis
+
     if args.dry_run:
         doc_url = "https://docs.google.com/document/d/PREVIEW"
         print("\n[Publish] Dry run — skipping Google Doc creation")
     else:
         print(f"\n[Publish] Creating Google Doc: '{doc_title}' ...")
         doc_url = publish_to_google_drive(
-            config, doc_title, analysis, calls_count, accounts_count, today, days,
+            config, doc_title, analysis_with_uc, calls_count, accounts_count, today, days,
             owner_map=owner_map)
         print(f"  ✅ Doc created → {doc_url}")
 
-    slack_msg = build_slack_message(analysis, calls_count, accounts_count, days, today, doc_url)
+    slack_msg = build_slack_message(analysis, calls_count, accounts_count, days, today, doc_url,
+                                    use_cases=use_cases)
 
     if args.dry_run:
         post_to_slack("", slack_msg, dry_run=True)
