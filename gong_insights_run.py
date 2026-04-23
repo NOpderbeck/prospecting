@@ -1384,11 +1384,19 @@ def add_table_of_contents(docs_svc, doc_id: str,
         _batch_update(docs_svc, doc_id, [
             {"insertText": {"location": {"index": acct_pos}, "text": acct_text}}
         ])
-        # Style: bold label, normal body, compact spacing
+        # Style: bold+italic label, italic body, 10pt, no spacing gap
         label_start = acct_pos + 1          # skip leading \n
         label_end   = label_start + _utf16_len(label)
         body_end    = label_end + _utf16_len(body)
         _batch_update(docs_svc, doc_id, [
+            # Whole line: 10pt italic, no spacing
+            {"updateTextStyle": {
+                "range": {"startIndex": label_start, "endIndex": body_end},
+                "textStyle": {"italic": True,
+                              "fontSize": {"magnitude": 10, "unit": "PT"}},
+                "fields": "italic,fontSize",
+            }},
+            # Label portion: also bold
             {"updateTextStyle": {
                 "range": {"startIndex": label_start, "endIndex": label_end},
                 "textStyle": {"bold": True},
@@ -1397,7 +1405,7 @@ def add_table_of_contents(docs_svc, doc_id: str,
             {"updateParagraphStyle": {
                 "range": {"startIndex": label_start, "endIndex": body_end + 1},
                 "paragraphStyle": {
-                    "spaceAbove": {"magnitude": 6, "unit": "PT"},
+                    "spaceAbove": {"magnitude": 0, "unit": "PT"},
                     "spaceBelow": {"magnitude": 0, "unit": "PT"},
                 },
                 "fields": "spaceAbove,spaceBelow",
