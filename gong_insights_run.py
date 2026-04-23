@@ -298,7 +298,9 @@ CRITICAL RULE — ACCOUNT NAMES: Every transcript header contains a line:
 
 ---
 
-Produce a structured product intelligence report with EXACTLY these sections:
+Produce a structured product intelligence report. Start your response IMMEDIATELY
+with "## Executive Summary" — no title, no preamble, no "Excluded" list, no period
+summary line. EXACTLY these sections in order:
 
 ## Executive Summary
 3–5 bullets. Highest-impact insights for Product leadership. Lead with what
@@ -1667,8 +1669,10 @@ def publish_to_google_drive(config: dict, title: str,
     url_dict = _parse_appendix_urls(analysis)
     print(f"  Citation URLs indexed: {len(url_dict)}")
 
-    # Strip any H1 title Claude adds to its own output (would duplicate our header)
-    clean_analysis = re.sub(r'^#\s+[^\n]+\n', '', analysis, count=1).lstrip("\n")
+    # Strip everything before the first ## section heading — removes any preamble
+    # Claude adds (H1 title, Period summary line, Excluded block, horizontal rules, etc.)
+    m_first = re.search(r'^##\s', analysis, re.MULTILINE)
+    clean_analysis = analysis[m_first.start():] if m_first else analysis
     clean_analysis = _reorder_analysis_sections(clean_analysis)
 
     header_md = (
@@ -1695,8 +1699,11 @@ def publish_to_google_drive(config: dict, title: str,
                 _cited.add(" ".join(words))
         for m2 in re.finditer(r'Accounts?:\s*([^\n]+)', line, re.IGNORECASE):
             for a in m2.group(1).split(","):
-                a = a.strip()
-                if a and not a.lower().startswith("unknown"):
+                a = re.sub(r'\s*\([^)]*\)', '', a).strip()   # strip parentheticals
+                if (a
+                        and not a.lower().startswith("unknown")
+                        and "—" not in a
+                        and not re.search(r'\b(excluded|internal|per rules|implied)\b', a, re.I)):
                     _cited.add(a)
     cited_accounts = sorted(_cited, key=str.lower)
 
