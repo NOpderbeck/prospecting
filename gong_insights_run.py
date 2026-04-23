@@ -321,6 +321,7 @@ Include ALL extracted quotes with source info.
 ---
 Main sections (Executive Summary through Competitive Landscape): max 2,000 words.
 Every insight must cite the account it came from. Cover all accounts represented in the transcripts — do not omit any.
+IMPORTANT: Always use the exact account name from the "Account:" field in the transcript header (e.g. "OWKIN", "Mutiny HQ"). Never substitute a company name mentioned in conversation — the header field is the source of truth.
 Use bullet points throughout. No filler.\
 """
 
