@@ -1373,6 +1373,52 @@ def get_or_create_doc(docs_svc, drive_svc, title: str) -> str:
     return doc_id
 
 
+_SECTION_ORDER = [
+    "executive summary",
+    "product gaps",
+    "capability wins",
+    "feature opportunities",
+    "objection analysis",
+    "competitive landscape",
+    "raw evidence appendix",
+]
+
+
+def _reorder_analysis_sections(text: str) -> str:
+    """Enforce canonical section order regardless of what Claude output."""
+    chunks: dict[str, str] = {}
+    current_key: str | None = None
+    current_lines: list[str] = []
+
+    for line in text.splitlines(keepends=True):
+        if line.startswith("## "):
+            if current_key is not None:
+                chunks[current_key] = "".join(current_lines)
+            current_key = line[3:].strip().lower()
+            current_lines = [line]
+        else:
+            if current_key is None:
+                current_key = "__preamble__"
+            current_lines.append(line)
+
+    if current_key is not None:
+        chunks[current_key] = "".join(current_lines)
+
+    ordered: list[str] = []
+    if "__preamble__" in chunks:
+        ordered.append(chunks.pop("__preamble__"))
+
+    for name in _SECTION_ORDER:
+        for key in list(chunks.keys()):
+            if key == name or key.startswith(name):
+                ordered.append(chunks.pop(key))
+                break
+
+    # Append any remaining sections not in the canonical list
+    ordered.extend(chunks.values())
+    return "".join(ordered)
+
+
 def publish_to_google_drive(config: dict, title: str,
                             analysis: str, calls_count: int, accounts_count: int,
                             today: str, days: int) -> str:
@@ -1395,6 +1441,7 @@ def publish_to_google_drive(config: dict, title: str,
 
     # Strip any H1 title Claude adds to its own output (would duplicate our header)
     clean_analysis = re.sub(r'^#\s+[^\n]+\n', '', analysis, count=1).lstrip("\n")
+    clean_analysis = _reorder_analysis_sections(clean_analysis)
 
     header_md = (
         f"# Gong Product Intelligence — {date_range}\n"
