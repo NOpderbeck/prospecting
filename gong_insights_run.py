@@ -1018,8 +1018,10 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
             add(*q_tuple)
             if c_tuple:
                 add(*c_tuple)
-        for item in extras:
-            add(*item)
+        for txt, style, bold, fmts in extras:
+            prefix = "• "
+            shifted = [(s + len(prefix), e + len(prefix), f) for s, e, f in fmts]
+            add(prefix + txt, style, bold, shifted)
         if accounts:
             add(*accounts)
         pending_entry.clear()
@@ -1173,13 +1175,10 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 flush_entry()
                 return True
             # Generic "Label: value" sub-item (Context:, Outcome:, Differentiators cited:,
-            # Root cause:, Mitigation:, etc.) — bold label, don't uppercase
+            # etc.) — strip label, render as plain bullet
             if re.match(r'^[A-Za-z][^—\n]{0,60}:\s*\S', raw):
-                plain, fmts = _parse_inline_formats(raw, url_dict)
-                lm = re.match(r'^([A-Za-z][^:]{0,60}:)', plain)
-                if lm:
-                    fmts = list(fmts)
-                    fmts.insert(0, (0, lm.end(), "bold"))
+                stripped = re.sub(r'^[A-Za-z][^:]{0,60}:\s*', '', raw)
+                plain, fmts = _parse_inline_formats(stripped, url_dict)
                 pending_entry.setdefault("extra", []).append((plain, N, False, fmts))
                 return True
             return False
