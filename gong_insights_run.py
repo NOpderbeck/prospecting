@@ -295,8 +295,10 @@ For each objection type:
   - Mitigation: [suggested product or GTM response]
 
 ## Capability Wins
-Where customers reacted positively to existing capabilities:
-- **[Capability]** — "[quote]" — [Account] — why it mattered
+Where customers reacted positively to existing capabilities. For each:
+- **[Capability]**
+  - Why it mattered: [one-sentence description of why this resonated]
+  - Quote: "exact customer words" — [Account], [Date]
 
 ## Competitive Landscape
 For each competitor mentioned:
@@ -982,6 +984,7 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
         add_norm = pending_entry.get("norm")
         add_why  = pending_entry.get("why")
         quotes   = pending_entry.get("quotes", [])
+        extras   = pending_entry.get("extra", [])
         accounts = pending_entry.get("accounts")
         if add_norm:
             add(*add_norm)
@@ -991,6 +994,8 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
             add(*q_tuple)
             if c_tuple:
                 add(*c_tuple)
+        for item in extras:
+            add(*item)
         if accounts:
             add(*accounts)
         pending_entry.clear()
@@ -1132,6 +1137,16 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 return True
             if re.match(r'^Blocking deal', raw, re.IGNORECASE):
                 flush_entry()
+                return True
+            # Generic "Label: value" sub-item (Context:, Outcome:, Differentiators cited:,
+            # Root cause:, Mitigation:, etc.) — bold label, don't uppercase
+            if re.match(r'^[A-Za-z][^—\n]{0,60}:\s*\S', raw):
+                plain, fmts = _parse_inline_formats(raw, url_dict)
+                lm = re.match(r'^([A-Za-z][^:]{0,60}:)', plain)
+                if lm:
+                    fmts = list(fmts)
+                    fmts.insert(0, (0, lm.end(), "bold"))
+                pending_entry.setdefault("extra", []).append((plain, N, False, fmts))
                 return True
             return False
 
