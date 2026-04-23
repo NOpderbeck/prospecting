@@ -289,7 +289,7 @@ Rank descending by (frequency × impact).
 Where customers reacted positively to existing capabilities. For each:
 - **[Capability]**
   - Quote: "exact customer words" — [Account], [Date]
-  - Why it mattered: [one-sentence description of why this resonated]
+  - Why it mattered: [complete sentence, e.g. "It mattered because..." or "This resonated because..."]
 
 ## Feature Opportunities
 Cluster related requests into themes. For each:
@@ -1000,7 +1000,13 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
             if c_tuple:
                 add(*c_tuple)
         if add_why_after:
-            add(*add_why_after)
+            _wt, _ws, _wb, _wf = add_why_after
+            # Ensure complete sentence: capitalize and add terminal period
+            if _wt and not _wt[0].isupper():
+                _wt = _wt[0].upper() + _wt[1:]
+            if _wt and _wt[-1] not in ".!?":
+                _wt = _wt + "."
+            add(_wt, _ws, _wb, _wf)
         for txt, style, bold, fmts in extras:
             prefix = "• "
             shifted = [(s + len(prefix), e + len(prefix), f) for s, e, f in fmts]
@@ -1190,12 +1196,52 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 # Sub-item patterns can appear at top level if Claude skips indentation
                 if _handle_data_subitem(raw):
                     continue
-                # This is the theme header line — uppercase label before ' — '
                 plain, fmts = _parse_inline_formats(raw, url_dict)
                 flush_entry()
-                sep = " — "
+
+                # Capability Wins old single-line format:
+                #   **Title** — "quote" — citation, YYYY-MM-DD — description
+                # Split into header + pending sub-items so flush_entry renders
+                # them as separate paragraphs.
+                if current_section == "capability wins":
+                    _cw_sep = " \u2014 "
+                    _ti = plain.find(_cw_sep)
+                    if _ti < 0:
+                        _cw_sep = " - "
+                        _ti = plain.find(_cw_sep)
+                    if _ti > 0:
+                        _title = plain[:_ti]
+                        _rest  = plain[_ti + len(_cw_sep):]
+                        _qm    = re.search(r'[\u201c"](.*?)[\u201d"]', _rest)
+                        if _qm:
+                            _q_body  = _rest[_qm.start():_qm.end()]
+                            _after_q = _rest[_qm.end():].strip()
+                            _cit_m   = re.match(
+                                r'^\u2014?\s*([^\u2014]+,\s*\d{4}-\d{2}-\d{2})\s*(?:\u2014\s*)?',
+                                _after_q)
+                            if _cit_m:
+                                _cit  = _cit_m.group(1).strip()
+                                _desc = _after_q[_cit_m.end():].strip()
+                                _url  = next((f for _, _, f in fmts
+                                              if isinstance(f, str)
+                                              and f.startswith("http")), None)
+                                _cf   = [(0, len(_cit), _url)] if _url else []
+                                pending_entry.setdefault("quotes", []).append(
+                                    ((_q_body, N, False, [(0, len(_q_body), "italic")]),
+                                     (_cit, N, False, _cf))
+                                )
+                                if _desc:
+                                    pending_entry["why_after"] = (_desc, N, False, [])
+                                add(_title.upper(), N, False, [])
+                                continue
+
+                # Generic header: uppercase label before ' — '
+                sep = " \u2014 "
                 idx = plain.find(sep)
-                display = (plain[:idx].upper() + sep + plain[idx + len(sep):]) \
+                if idx < 0:
+                    sep = " - "
+                    idx = plain.find(sep)
+                display = (plain[:idx].upper() + " \u2014 " + plain[idx + len(sep):]) \
                           if idx >= 0 else plain.upper()
                 add(display, N, False, fmts)
             else:
