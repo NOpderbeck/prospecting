@@ -1303,7 +1303,8 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
 # Table of Contents
 # ---------------------------------------------------------------------------
 
-def add_table_of_contents(docs_svc, doc_id: str):
+def add_table_of_contents(docs_svc, doc_id: str,
+                          account_names: list[str] | None = None):
     """
     Read the rendered doc, collect all HEADING_2 paragraphs, and insert a
     linked TOC block immediately before the first H2.
@@ -1371,6 +1372,37 @@ def add_table_of_contents(docs_svc, doc_id: str):
 
     if style_reqs:
         _batch_update(docs_svc, doc_id, style_reqs)
+
+    # Insert "Accounts mentioned" section immediately after the TOC block
+    if account_names:
+        names_str = ", ".join(sorted(set(account_names), key=str.lower))
+        label     = "Prospects/Customers: "
+        body      = names_str
+        acct_text = f"\n{label}{body}\n"
+        # Position is right after the TOC text we already inserted
+        acct_pos  = insert_pos + _utf16_len(toc_text)
+        _batch_update(docs_svc, doc_id, [
+            {"insertText": {"location": {"index": acct_pos}, "text": acct_text}}
+        ])
+        # Style: bold label, normal body, compact spacing
+        label_start = acct_pos + 1          # skip leading \n
+        label_end   = label_start + _utf16_len(label)
+        body_end    = label_end + _utf16_len(body)
+        _batch_update(docs_svc, doc_id, [
+            {"updateTextStyle": {
+                "range": {"startIndex": label_start, "endIndex": label_end},
+                "textStyle": {"bold": True},
+                "fields": "bold",
+            }},
+            {"updateParagraphStyle": {
+                "range": {"startIndex": label_start, "endIndex": body_end + 1},
+                "paragraphStyle": {
+                    "spaceAbove": {"magnitude": 6, "unit": "PT"},
+                    "spaceBelow": {"magnitude": 0, "unit": "PT"},
+                },
+                "fields": "spaceAbove,spaceBelow",
+            }},
+        ])
 
 
 # ---------------------------------------------------------------------------
@@ -1589,7 +1621,28 @@ def publish_to_google_drive(config: dict, title: str,
     )
     render_markdown_to_doc(docs_svc, doc_id, header_md + clean_analysis, url_dict,
                            owner_map=owner_map or {})
-    add_table_of_contents(docs_svc, doc_id)
+
+    # Collect account names from citations for the "Prospects/Customers" line
+    _cited: set[str] = set()
+    for line in clean_analysis.splitlines():
+        for m in re.finditer(r'—\s*([A-Z][A-Za-z0-9 /]{1,30}?)(?:\s*\([^)]*\))?,\s*\d{4}-\d{2}-\d{2}',
+                             line):
+            name = m.group(1).strip()
+            # Strip trailing qualifier words (eval, call, CEO, etc.)
+            _QUAL = {"eval", "call", "ceo", "cto", "vp", "svp", "cso", "team"}
+            words = name.split()
+            while words and words[-1].lower() in _QUAL:
+                words = words[:-1]
+            if words:
+                _cited.add(" ".join(words))
+        for m2 in re.finditer(r'Accounts?:\s*([^\n]+)', line, re.IGNORECASE):
+            for a in m2.group(1).split(","):
+                a = a.strip()
+                if a:
+                    _cited.add(a)
+    cited_accounts = sorted(_cited, key=str.lower)
+
+    add_table_of_contents(docs_svc, doc_id, account_names=cited_accounts)
 
     return f"https://docs.google.com/document/d/{doc_id}/edit"
 
