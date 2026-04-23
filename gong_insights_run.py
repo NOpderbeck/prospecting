@@ -108,8 +108,12 @@ def load_config():
         sys.exit(1)
     return {
         **required,
-        "google_creds_file": os.getenv("GOOGLE_CREDENTIALS_FILE", ""),
-        "slack_bot_token":   os.getenv("SLACK_BOT_TOKEN", ""),
+        "google_creds_file":   os.getenv("GOOGLE_CREDENTIALS_FILE", ""),
+        "slack_bot_token":     os.getenv("SLACK_BOT_TOKEN", ""),
+        "sf_username":         os.getenv("SF_USERNAME", ""),
+        "sf_password":         os.getenv("SF_PASSWORD", ""),
+        "sf_security_token":   os.getenv("SF_SECURITY_TOKEN", ""),
+        "sf_domain":           os.getenv("SF_DOMAIN", "login"),
     }
 
 
@@ -932,7 +936,8 @@ def _parse_inline_formats(text: str, url_dict: dict) -> tuple[str, list]:
 
 
 def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
-                           url_dict: dict | None = None):
+                           url_dict: dict | None = None,
+                           owner_map: dict[str, str] | None = None):
     """
     Parse Claude's markdown output and write it into the Google Doc.
 
@@ -942,7 +947,8 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
       reads as normal weight text with bolded lead phrases.
     """
     H1, H2, N = "HEADING_1", "HEADING_2", "NORMAL_TEXT"
-    url_dict = url_dict or {}
+    url_dict  = url_dict  or {}
+    owner_map = owner_map or {}
 
     SECTION_EMOJIS = {
         "executive summary":       "📋",
@@ -978,8 +984,9 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                 acct = re.sub(r'^—\s*', '', acct).strip()
                 if acct:
                     label = "Mentioned by: "
+                    acct_display = _annotate_accounts(acct, owner_map)
                     pending_entry["accounts"] = (
-                        label + acct, N, False,
+                        label + acct_display, N, False,
                         [(0, len(label) - 1, "bold")],
                     )
         # Root cause and mitigation as separate plain lines (Objection Analysis)
@@ -1145,8 +1152,9 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
             if re.match(r'^Accounts?:\s*', raw, re.IGNORECASE):
                 accts = re.sub(r'^Accounts?:\s*', '', raw, flags=re.IGNORECASE).strip()
                 label = "Mentioned by: "
+                accts_display = _annotate_accounts(accts, owner_map)
                 pending_entry["accounts"] = (
-                    label + accts, N, False,
+                    label + accts_display, N, False,
                     [(0, len(label) - 1, "bold")],
                 )
                 flush_entry()
@@ -1419,9 +1427,93 @@ def _reorder_analysis_sections(text: str) -> str:
     return "".join(ordered)
 
 
+def fetch_sf_owner_map(config: dict, account_names: list[str]) -> dict[str, str]:
+    """Return {input_name_lower: owner_first_name} from Salesforce.
+
+    Tries exact match first; falls back to LIKE for names that didn't match.
+    Degrades gracefully — returns empty dict if SF not configured or unavailable.
+    """
+    if not (config.get("sf_username") and config.get("sf_password")):
+        return {}
+    if not account_names:
+        return {}
+    try:
+        from simple_salesforce import Salesforce
+    except ImportError:
+        return {}
+    try:
+        sf = Salesforce(
+            username=config["sf_username"],
+            password=config["sf_password"],
+            security_token=config.get("sf_security_token", ""),
+            domain=config.get("sf_domain", "login"),
+        )
+    except Exception:
+        return {}
+
+    def _esc(v: str) -> str:
+        return v.replace("'", "\\'")
+
+    def _first_name(full: str) -> str:
+        return full.split()[0] if full else full
+
+    owner_map: dict[str, str] = {}  # input_name_lower → owner_first_name
+
+    # Step 1: exact IN query
+    names_in = ", ".join(f"'{_esc(n)}'" for n in account_names)
+    try:
+        records = sf.query(
+            f"SELECT Name, Owner.Name FROM Account WHERE Name IN ({names_in})"
+        ).get("records", [])
+    except Exception:
+        records = []
+
+    matched_inputs: set[str] = set()
+    for rec in records:
+        sf_name = (rec.get("Name") or "").strip()
+        owner   = ((rec.get("Owner") or {}).get("Name") or "").strip()
+        if not (sf_name and owner):
+            continue
+        # Map back to input name(s) that match this SF name
+        for inp in account_names:
+            if inp.lower() == sf_name.lower():
+                owner_map[inp.lower()] = _first_name(owner)
+                matched_inputs.add(inp.lower())
+
+    # Step 2: LIKE fallback for unmatched names
+    unmatched = [n for n in account_names if n.lower() not in matched_inputs]
+    for inp in unmatched:
+        try:
+            rows = sf.query(
+                f"SELECT Name, Owner.Name FROM Account "
+                f"WHERE Name LIKE '%{_esc(inp)}%' LIMIT 1"
+            ).get("records", [])
+        except Exception:
+            continue
+        if rows:
+            owner = ((rows[0].get("Owner") or {}).get("Name") or "").strip()
+            if owner:
+                owner_map[inp.lower()] = _first_name(owner)
+
+    return owner_map
+
+
+def _annotate_accounts(accts_str: str, owner_map: dict[str, str]) -> str:
+    """Append (OwnerFirstName) after each account name that has an SF owner."""
+    if not owner_map:
+        return accts_str
+    parts = [a.strip() for a in accts_str.split(",") if a.strip()]
+    annotated = []
+    for acct in parts:
+        owner = owner_map.get(acct.lower())
+        annotated.append(f"{acct} ({owner})" if owner else acct)
+    return ", ".join(annotated)
+
+
 def publish_to_google_drive(config: dict, title: str,
                             analysis: str, calls_count: int, accounts_count: int,
-                            today: str, days: int) -> str:
+                            today: str, days: int,
+                            owner_map: dict[str, str] | None = None) -> str:
     from googleapiclient.discovery import build
 
     creds     = get_google_creds(config["google_creds_file"])
@@ -1449,7 +1541,8 @@ def publish_to_google_drive(config: dict, title: str,
         f"Calls analyzed: {calls_count}  |  Accounts represented: {accounts_count}\n\n"
         "---\n\n"
     )
-    render_markdown_to_doc(docs_svc, doc_id, header_md + clean_analysis, url_dict)
+    render_markdown_to_doc(docs_svc, doc_id, header_md + clean_analysis, url_dict,
+                           owner_map=owner_map or {})
     add_table_of_contents(docs_svc, doc_id)
 
     return f"https://docs.google.com/document/d/{doc_id}/edit"
@@ -1542,6 +1635,25 @@ def main():
         print("\n--skip-publish set — done.")
         return
 
+    # Fetch SF owner map for account annotation (graceful no-op if SF not configured)
+    # Collect names from explicit Accounts: lines AND from citation patterns (— Account, Date)
+    _acct_set: set[str] = set()
+    for line in analysis.splitlines():
+        m = re.match(r'^\s*-?\s*Accounts?:\s*(.+)', line, re.IGNORECASE)
+        if m:
+            for a in m.group(1).split(","):
+                if a.strip():
+                    _acct_set.add(a.strip())
+        # citations: "— AccountName (optional), YYYY-MM-DD"
+        for cit in re.findall(r'—\s*([^,—\n(]+?)(?:\s*\([^)]*\))?,\s*\d{4}-\d{2}-\d{2}', line):
+            cit = cit.strip()
+            if cit:
+                _acct_set.add(cit)
+    acct_names = list(_acct_set)
+    owner_map = fetch_sf_owner_map(config, acct_names)
+    if owner_map:
+        print(f"  SF owner map: {len(owner_map)} accounts matched")
+
     end_date   = date.fromisoformat(today)
     start_date = end_date - timedelta(days=days - 1)
     date_range = f"{start_date.strftime('%b %-d')}–{end_date.strftime('%-d, %Y')}"
@@ -1553,7 +1665,8 @@ def main():
     else:
         print(f"\n[Publish] Creating Google Doc: '{doc_title}' ...")
         doc_url = publish_to_google_drive(
-            config, doc_title, analysis, calls_count, accounts_count, today, days)
+            config, doc_title, analysis, calls_count, accounts_count, today, days,
+            owner_map=owner_map)
         print(f"  ✅ Doc created → {doc_url}")
 
     slack_msg = build_slack_message(analysis, calls_count, accounts_count, days, today, doc_url)
