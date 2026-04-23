@@ -58,11 +58,33 @@ _INTERNAL_TITLE_RE = re.compile(
 
 
 def _is_likely_external(call: dict) -> bool:
-    """Return True only if the call has a CRM account linked (primaryAccount set).
-    Calls with no CRM account are excluded — they are almost always internal."""
+    """Return True if the call appears to be with an external party.
+
+    Priority order:
+    1. If any party has affiliation='External' → external (most reliable signal)
+    2. If a CRM primaryAccount is linked → external
+    3. If all parties are 'Internal' → internal
+    4. Title keyword fallback for unclassified calls
+    """
+    # 1. Check party affiliations
+    parties = call.get("parties") or []
+    affiliations = {(p.get("affiliation") or "").lower() for p in parties}
+    if "external" in affiliations:
+        return True
+    if affiliations and affiliations <= {"internal", ""}:
+        return False
+
+    # 2. CRM account linked
     meta         = call.get("metaData") or {}
     account_name = (meta.get("primaryAccount") or {}).get("name") or ""
-    return bool(account_name.strip())
+    if account_name.strip():
+        return True
+
+    # 3. Title keyword fallback
+    title = (call.get("title") or "").strip()
+    if _INTERNAL_TITLE_RE.search(title):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
