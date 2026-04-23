@@ -1238,7 +1238,7 @@ def render_markdown_to_doc(docs_svc, doc_id: str, markdown_text: str,
                                 )
                             if _desc:
                                 pending_entry["why_after"] = (_desc, N, False, [])
-                            add(_title.upper(), N, False, [])
+                            add(_title.upper(), N, True, [])
                             _split_done = True
 
                 if not _split_done:
