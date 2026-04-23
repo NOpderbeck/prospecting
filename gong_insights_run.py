@@ -233,11 +233,12 @@ def format_transcript(call: dict, transcript_parts: list) -> str:
     call_id  = call.get("id") or ""
     call_url = f"https://us-64844.app.gong.io/call?id={call_id}" if call_id else ""
 
+    title = call.get("title") or "Untitled Call"
     lines = [
-        f"## {call.get('title') or 'Untitled Call'}",
+        f"## {title}",
         f"- Date: {(call.get('started') or '')[:10] or 'unknown'}",
         f"- Duration: {(call.get('duration') or 0) // 60} min",
-        f"- Account: {account_name or 'unknown'}",
+        f"- Account: {account_name if account_name else f'unknown (infer from title: {title})'}",
         f"- Deal Stage: {deal_stage or 'unknown'}",
         f"- URL: {call_url}",
         "",
@@ -286,10 +287,12 @@ Analyze the following Gong call transcripts (past {days} days, {n} calls).
 
 CRITICAL RULE — ACCOUNT NAMES: Every transcript header contains a line:
   "- Account: <name>"
-You MUST use that exact name (e.g. "OWKIN", "Mutiny HQ") wherever you reference
-that account throughout the report. Never use a nickname, abbreviation, or any
-name that appears in the conversation text instead. The header field is the
-sole source of truth.
+• If the name is a real company (e.g. "OWKIN", "Mutiny HQ"), use it exactly everywhere.
+• If Account says "unknown (infer from title: ...)", extract the company name from the
+  title hint (e.g. "San Diego Padres Discovery" → "San Diego Padres"). If the title
+  contains only person names or is ambiguous (e.g. "Chris / Seyar sync"), treat this
+  as an internal call and EXCLUDE it from the report entirely.
+• NEVER write "unknown" as an account name anywhere in the report.
 
 {transcripts}
 
@@ -422,7 +425,7 @@ def count_accounts_from_analysis(analysis: str) -> int:
         parts = [p.strip() for p in line.strip("|").split("|")]
         if len(parts) >= 3:
             acct = re.sub(r'\s*\(.*?\)', '', parts[2]).strip().lower()
-            if acct and acct not in ("account", "") and re.match(r'^[a-z]', acct):
+            if acct and acct not in ("account", "unknown", "") and re.match(r'^[a-z]', acct):
                 raw.add(acct)
 
     # Source 2: inline '— Account, YYYY-MM-DD' citations in body
@@ -435,7 +438,7 @@ def count_accounts_from_analysis(analysis: str) -> int:
         if any(c in acct_raw for c in ('"', '"', '"', '—', '–')):
             continue
         acct = re.sub(r'\s*\(.*?\)', '', acct_raw).strip().lower()
-        if acct:
+        if acct and acct != "unknown":
             raw.add(acct)
 
     # Normalise: drop trailing qualifier words
@@ -1688,12 +1691,12 @@ def publish_to_google_drive(config: dict, title: str,
             words = name.split()
             while words and words[-1].lower() in _QUAL:
                 words = words[:-1]
-            if words:
+            if words and words[0].lower() != "unknown":
                 _cited.add(" ".join(words))
         for m2 in re.finditer(r'Accounts?:\s*([^\n]+)', line, re.IGNORECASE):
             for a in m2.group(1).split(","):
                 a = a.strip()
-                if a:
+                if a and not a.lower().startswith("unknown"):
                     _cited.add(a)
     cited_accounts = sorted(_cited, key=str.lower)
 
