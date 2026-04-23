@@ -431,14 +431,39 @@ def count_accounts_from_analysis(analysis: str) -> int:
     return len(final)
 
 
+def build_owner_map_from_calls(calls: list[dict]) -> dict[str, str]:
+    """Build {account_name_lower: owner_first_name} from Gong call metadata.
+
+    Uses primaryUserId matched against call parties — same data Gong shows
+    on its own account record, so it's always correct (no LIKE ambiguity).
+    """
+    owner_map: dict[str, str] = {}
+    for call in calls:
+        meta = call.get("metaData") or {}
+        acct = ((meta.get("primaryAccount") or {}).get("name") or "").strip()
+        if not acct:
+            continue
+        primary_uid = meta.get("primaryUserId") or ""
+        for party in call.get("parties", []):
+            uid = party.get("userId") or party.get("id") or ""
+            if uid and uid == primary_uid:
+                name = (party.get("name") or "").strip()
+                if name:
+                    owner_map[acct.lower()] = name.split()[0]
+                break
+    return owner_map
+
+
 def save_cache(out_dir: Path, today: str, analysis: str,
-               calls_count: int, accounts_count: int, days: int) -> Path:
+               calls_count: int, accounts_count: int, days: int,
+               owner_map: dict[str, str] | None = None) -> Path:
     cache = {
         "analysis":       analysis,
         "calls_count":    calls_count,
         "accounts_count": accounts_count,
         "date":           today,
         "days":           days,
+        "owner_map":      owner_map or {},
     }
     cache_path = out_dir / f"gong_insights_cache_{today}.json"
     cache_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
@@ -457,9 +482,10 @@ def load_cache(cache_file: str) -> dict:
     if missing:
         print(f"ERROR: cache file missing fields: {missing}")
         sys.exit(1)
-    # accounts_count added later — derive from appendix if absent
     if "accounts_count" not in data:
         data["accounts_count"] = count_accounts_from_analysis(data["analysis"])
+    if "owner_map" not in data:
+        data["owner_map"] = {}
     print(f"  Loaded cache: {data['calls_count']} calls, "
           f"{data['accounts_count']} accounts, date={data['date']}, days={data['days']}")
     return data
@@ -1480,20 +1506,28 @@ def fetch_sf_owner_map(config: dict, account_names: list[str]) -> dict[str, str]
                 owner_map[inp.lower()] = _first_name(owner)
                 matched_inputs.add(inp.lower())
 
-    # Step 2: LIKE fallback for unmatched names
+    # Step 2: LIKE fallback for unmatched names — pick best-fit when multiple results
+    import difflib
     unmatched = [n for n in account_names if n.lower() not in matched_inputs]
     for inp in unmatched:
         try:
             rows = sf.query(
                 f"SELECT Name, Owner.Name FROM Account "
-                f"WHERE Name LIKE '%{_esc(inp)}%' LIMIT 1"
+                f"WHERE Name LIKE '%{_esc(inp)}%' LIMIT 10"
             ).get("records", [])
         except Exception:
             continue
-        if rows:
-            owner = ((rows[0].get("Owner") or {}).get("Name") or "").strip()
-            if owner:
-                owner_map[inp.lower()] = _first_name(owner)
+        if not rows:
+            continue
+        best = max(
+            rows,
+            key=lambda r: difflib.SequenceMatcher(
+                None, inp.lower(), (r.get("Name") or "").lower()
+            ).ratio(),
+        )
+        owner = ((best.get("Owner") or {}).get("Name") or "").strip()
+        if owner:
+            owner_map[inp.lower()] = _first_name(owner)
 
     return owner_map
 
@@ -1566,6 +1600,8 @@ def main():
     out_dir.mkdir(exist_ok=True)
 
     # ── Phase 1: Get analysis (fresh or from cache) ──────────────────────────
+    gong_owner_map: dict[str, str] = {}   # exact SF account_name_lower → owner first name
+
     if args.from_cache:
         print(f"[1/3] Loading from cache: {args.from_cache}")
         cache = load_cache(args.from_cache)
@@ -1574,6 +1610,7 @@ def main():
         accounts_count  = cache["accounts_count"]
         today           = cache["date"]
         days            = cache["days"]
+        gong_owner_map  = cache.get("owner_map") or {}
     else:
         days  = args.days
         today = date.today().isoformat()
@@ -1610,6 +1647,9 @@ def main():
             print("No transcript content found — nothing to analyze.")
             sys.exit(0)
 
+        # Build owner map from Gong call metadata (exact SF account name → AE first name)
+        gong_owner_map = build_owner_map_from_calls(calls)
+
         print("\n[4/4] Running Claude analysis ...")
         analysis       = analyze_with_claude(config, transcript_texts, days, args.verbose)
         calls_count    = len(transcript_texts)
@@ -1627,7 +1667,8 @@ def main():
         md_path.write_text(header + analysis, encoding="utf-8")
         print(f"\n  Markdown saved → {md_path}")
 
-        cache_path = save_cache(out_dir, today, analysis, calls_count, accounts_count, days)
+        cache_path = save_cache(out_dir, today, analysis, calls_count, accounts_count, days,
+                                owner_map=gong_owner_map)
         print(f"  Re-run with: python gong_insights_run.py --from-cache {cache_path}")
 
     # ── Phase 2: Publish ─────────────────────────────────────────────────────
@@ -1635,8 +1676,8 @@ def main():
         print("\n--skip-publish set — done.")
         return
 
-    # Fetch SF owner map for account annotation (graceful no-op if SF not configured)
-    # Collect names from explicit Accounts: lines AND from citation patterns (— Account, Date)
+    # Resolve owner map: Gong data is primary (exact SF names, always correct).
+    # SF LIKE lookup fills gaps for abbreviated names Claude uses that don't match exactly.
     _acct_set: set[str] = set()
     for line in analysis.splitlines():
         m = re.match(r'^\s*-?\s*Accounts?:\s*(.+)', line, re.IGNORECASE)
@@ -1644,15 +1685,20 @@ def main():
             for a in m.group(1).split(","):
                 if a.strip():
                     _acct_set.add(a.strip())
-        # citations: "— AccountName (optional), YYYY-MM-DD"
         for cit in re.findall(r'—\s*([^,—\n(]+?)(?:\s*\([^)]*\))?,\s*\d{4}-\d{2}-\d{2}', line):
             cit = cit.strip()
             if cit:
                 _acct_set.add(cit)
-    acct_names = list(_acct_set)
-    owner_map = fetch_sf_owner_map(config, acct_names)
+
+    # Names not already covered by Gong exact-match map → SF LIKE fallback
+    unresolved = [n for n in _acct_set if n.lower() not in gong_owner_map]
+    sf_map = fetch_sf_owner_map(config, unresolved) if unresolved else {}
+
+    # Merge: Gong data takes precedence over SF LIKE results
+    owner_map = {**sf_map, **gong_owner_map}
     if owner_map:
-        print(f"  SF owner map: {len(owner_map)} accounts matched")
+        print(f"  Owner map: {len(owner_map)} accounts ({len(gong_owner_map)} from Gong, "
+              f"{len(sf_map)} from SF fallback)")
 
     end_date   = date.fromisoformat(today)
     start_date = end_date - timedelta(days=days - 1)
