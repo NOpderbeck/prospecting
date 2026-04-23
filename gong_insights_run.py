@@ -663,6 +663,41 @@ def _competitor_bar_chart(section: str, max_items: int = 5, bar_width: int = 10)
     return lines
 
 
+_ORG_NOISE = {
+    "file", "token", "auto", "sync", "pipeline", "overflow", "lack",
+    "blocked", "and", "or", "the", "with", "for", "from", "unknown",
+    "multiple", "accounts", "auto-sync", "pipelines", "deployments",
+    "limits", "calls", "issues", "errors", "requests", "features",
+}
+
+
+def _is_org_name(name: str) -> bool:
+    """Return True if name looks like a company/account name, not a sentence fragment."""
+    if not name:
+        return False
+    # Strip stray markdown
+    name = name.strip("* \t")
+    if not name or len(name) > 50:
+        return False
+    # Must start with an uppercase letter
+    if not name[0].isupper():
+        return False
+    words = name.split()
+    # Reject if too many words (likely a phrase, not an org)
+    if len(words) > 5:
+        return False
+    # Reject if any word is a known noise/filler word
+    if any(w.lower().strip(".,;:") in _ORG_NOISE for w in words):
+        return False
+    # Reject if contains bracket, plus, slash at start, or em-dash
+    if any(c in name for c in ('[', ']', '+', '—')):
+        return False
+    # Reject "unknown" entries
+    if name.lower().startswith("unknown"):
+        return False
+    return True
+
+
 def _reformat_use_cases(text: str) -> str:
     """Reformat Claude's bullet-style use cases into clean doc paragraphs:
       - No leading bullet
@@ -1805,15 +1840,31 @@ def publish_to_google_drive(config: dict, title: str,
                 words = words[:-1]
             if words and words[0].lower() != "unknown":
                 _cited.add(" ".join(words))
-        for m2 in re.finditer(r'Accounts?:\s*([^\n]+)', line, re.IGNORECASE):
-            for a in m2.group(1).split(","):
-                a = re.sub(r'\s*\([^)]*\)', '', a).strip()   # strip parentheticals
-                if (a
-                        and not a.lower().startswith("unknown")
-                        and "—" not in a
-                        and not re.search(r'\b(excluded|internal|per rules|implied)\b', a, re.I)):
+        # Only match lines where Accounts: is at the start (after optional bullet/bold markers)
+        # This prevents matching "accounts:" mid-sentence in the Executive Summary etc.
+        m_accts = re.match(r'^\s*[-•]?\s*\*{0,2}Accounts?:\*{0,2}\s*(.+)', line, re.IGNORECASE)
+        if m_accts:
+            for chunk in m_accts.group(1).split(","):
+                chunk = chunk.strip()
+                # Handle "unknown [InferredName]" — extract the bracketed hint
+                m_unk = re.match(r'^unknown\s+\[(.+?)\]', chunk, re.IGNORECASE)
+                if m_unk:
+                    a = m_unk.group(1).strip()
+                    # Reject person-pair formats: "First/Last", "Name - Company", "Name and Name"
+                    if re.search(r'\b and \b|/| - ', a):
+                        continue
+                else:
+                    a = re.sub(r'\s*\([^)]*\)', '', chunk)  # strip (parentheticals)
+                    a = a.strip('* \t')
+                if _is_org_name(a):
                     _cited.add(a)
-    cited_accounts = sorted(_cited, key=str.lower)
+    # Deduplicate case-insensitively, keeping the longer/better-cased form
+    _cited_deduped: dict[str, str] = {}
+    for name in _cited:
+        key = name.lower()
+        if key not in _cited_deduped or len(name) > len(_cited_deduped[key]):
+            _cited_deduped[key] = name
+    cited_accounts = sorted(_cited_deduped.values(), key=str.lower)
 
     add_table_of_contents(docs_svc, doc_id, account_names=cited_accounts)
 
