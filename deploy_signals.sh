@@ -15,6 +15,7 @@ REGION=us-central1
 JOB_NAME=signals-report
 IMAGE=gcr.io/${PROJECT_ID}/${JOB_NAME}
 SA_EMAIL=penetration-report@${PROJECT_ID}.iam.gserviceaccount.com
+BURST_STATE_BUCKET=${PROJECT_ID}-signals-state
 
 # Schedule: every day at 8:00 AM Pacific
 SCHEDULE="0 8 * * *"
@@ -30,8 +31,21 @@ echo "  Project : ${PROJECT_ID}"
 echo "  Region  : ${REGION}"
 echo "  Image   : ${IMAGE}"
 echo "  Test tag: ${TEST_OWNER_EMAIL}"
+echo "  State   : gs://${BURST_STATE_BUCKET}/${_GCS_BURST_BLOB:-burst_state.json}"
 echo "═══════════════════════════════════════════════"
 echo
+
+# ── 0. Ensure GCS state bucket exists ────────────────────────────────────────
+echo "▶ Ensuring GCS state bucket gs://${BURST_STATE_BUCKET}..."
+if ! gsutil ls -b "gs://${BURST_STATE_BUCKET}" &>/dev/null; then
+  gsutil mb -p "${PROJECT_ID}" -l "${REGION}" "gs://${BURST_STATE_BUCKET}"
+  echo "  Created gs://${BURST_STATE_BUCKET}"
+else
+  echo "  Already exists"
+fi
+gsutil iam ch "serviceAccount:${SA_EMAIL}:roles/storage.objectAdmin" \
+  "gs://${BURST_STATE_BUCKET}"
+echo "  Granted objectAdmin to ${SA_EMAIL}"
 
 # ── 1. Build Docker image ─────────────────────────────────────────────────────
 echo "▶ Building Docker image..."
@@ -49,7 +63,7 @@ gcloud run jobs deploy "${JOB_NAME}" \
   --command="python3" \
   --args="signals_run.py" \
   --set-secrets="SF_USERNAME=pen-sf-username:latest,SF_PASSWORD=pen-sf-password:latest,SF_SECURITY_TOKEN=pen-sf-token:latest,SLACK_BOT_TOKEN=pen-slack-bot-token:latest" \
-  --set-env-vars="TEST_OWNER_EMAIL=${TEST_OWNER_EMAIL}" \
+  --set-env-vars="TEST_OWNER_EMAIL=${TEST_OWNER_EMAIL},BURST_STATE_BUCKET=${BURST_STATE_BUCKET}" \
   --max-retries 1 \
   --task-timeout 10m \
   --project="${PROJECT_ID}" \

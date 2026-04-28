@@ -409,7 +409,8 @@ Formatting rules (strictly enforced):
     Example pattern: "Most [X] aren't [cause]. They're [real cause]. [emoji]"
   - 2 to 4 emojis placed naturally at the end of key sentences. Not clustered.
   - Never use em dashes (— or --). Use a colon, a comma, or a new sentence instead.
-  - Do NOT mention competitors.
+  - Do NOT mention competitors (Tavily, Exa, Parallel Web, Nimble, LinkUp, Perplexity,
+    or any other named search/retrieval competitor). The post is published publicly.
   - Do NOT end with a question.
   - NEVER cite individual posts, users, or anecdotes. Generalize: "Teams building
     production agents are finding...", "The pattern emerging across the community
@@ -436,7 +437,8 @@ Return a single valid JSON object with exactly these keys:
 }
 
 ## x_post
-One sharp insight, 280 chars max. No em dashes. Should make the reader think.
+One sharp insight, 280 chars max. No em dashes. No competitor names. Should make
+the reader think.
 
 ## top_source_urls
 Up to 8 of the most credible/relevant URLs from the signals.

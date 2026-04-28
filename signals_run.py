@@ -42,7 +42,7 @@ MIN_BURST_DELTA     = 500   # minimum absolute increase over weekly average (cal
 MIN_BURST_RATIO     = 1.75  # this week must be ≥ 1.75× the weekly average
 MIN_UNTIERED_CALLS  = 500   # minimum 30d calls for an untiered account to surface
 MIN_DORMANT_ALLTIME = 1_000 # minimum all-time calls for a dormant account to surface
-BURST_COOLDOWN_DAYS = 7     # suppress repeat burst alerts for the same account within N days
+BURST_COOLDOWN_DAYS = 4     # suppress repeat burst alerts for the same account within N days
 
 # State file — tracks when each account last fired a burst alert
 # Stored next to the script so it persists across Cloud Run executions via the same volume,
@@ -193,8 +193,34 @@ def fetch_all_usage(sf, tier_filter: str = TIER1_FILTER) -> list:
     """)
 
 
+_GCS_BURST_BLOB = "burst_state.json"
+
+
+def _gcs_bucket():
+    """Return a GCS Bucket object if BURST_STATE_BUCKET is set, else None."""
+    bucket_name = os.getenv("BURST_STATE_BUCKET", "")
+    if not bucket_name:
+        return None
+    try:
+        from google.cloud import storage
+        return storage.Client().bucket(bucket_name)
+    except Exception as e:
+        print(f"  ⚠️  GCS init failed, falling back to local state: {e}", file=sys.stderr)
+        return None
+
+
 def _load_burst_state() -> dict:
-    """Load the burst cooldown state from disk. Returns {} if missing or unreadable."""
+    """Load burst cooldown state from GCS (if configured) or local disk."""
+    bucket = _gcs_bucket()
+    if bucket is not None:
+        try:
+            blob = bucket.blob(_GCS_BURST_BLOB)
+            if blob.exists():
+                return json.loads(blob.download_as_text())
+            return {}
+        except Exception as e:
+            print(f"  ⚠️  GCS load failed, falling back to local state: {e}", file=sys.stderr)
+
     path = _BURST_STATE_FILE
     if not os.path.exists(path):
         path_tmp = "/tmp/.burst_state.json"
@@ -209,7 +235,17 @@ def _load_burst_state() -> dict:
 
 
 def _save_burst_state(state: dict) -> None:
-    """Persist burst cooldown state to disk."""
+    """Persist burst cooldown state to GCS (if configured) or local disk."""
+    bucket = _gcs_bucket()
+    if bucket is not None:
+        try:
+            bucket.blob(_GCS_BURST_BLOB).upload_from_string(
+                json.dumps(state, indent=2), content_type="application/json"
+            )
+            return
+        except Exception as e:
+            print(f"  ⚠️  GCS save failed, falling back to local state: {e}", file=sys.stderr)
+
     path = _BURST_STATE_FILE
     try:
         with open(path, "w") as f:
