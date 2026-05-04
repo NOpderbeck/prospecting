@@ -52,7 +52,7 @@ GOOGLE_TOKEN_PATH  = Path(__file__).parent / ".credentials" / "google_token_x_an
 GOOGLE_SCOPES      = ["https://www.googleapis.com/auth/drive"]
 
 DEFAULT_DAYS     = int(os.getenv("X_ANALYSIS_DAYS", "7"))
-DEFAULT_TOP_N    = int(os.getenv("X_ANALYSIS_TOP",  "25"))
+DEFAULT_TOP_N    = int(os.getenv("X_ANALYSIS_TOP",  "50"))
 DRY_RUN_QUERIES  = 5
 MAX_PAGES        = 5
 PAGE_DELAY       = 0.4
