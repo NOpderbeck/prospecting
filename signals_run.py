@@ -35,19 +35,31 @@ SLACK_CHANNEL = "C0AT4Q506Q2"  # #sales-target-alerts — ID is rename-safe
 SF_BASE       = "https://ydc.my.salesforce.com/"
 
 # ── Burst detection thresholds ─────────────────────────────────────────────────
-# Both conditions must be true to fire. The absolute floor prevents false
-# positives at low volumes (10→20 is noise); the ratio ensures the spike is
-# proportionally meaningful at higher volumes (5000→5800 is growth, not a burst).
-MIN_BURST_DELTA     = 500   # minimum absolute increase over weekly average (calls)
-MIN_BURST_RATIO     = 1.75  # this week must be ≥ 1.75× the weekly average
+# Burst thresholds are tiered by weekly average volume so that large accounts
+# (already at production scale) can still trigger alerts on meaningful growth
+# without needing to double their traffic.
+#
+# Each tier: (weekly_avg_floor, min_ratio, min_delta)
+# The first tier whose floor is <= weekly_avg wins (list must be descending by floor).
+BURST_TIERS = [
+    (1_000_000, 1.15,  200_000),   # > 1M/wk  — e.g. Alibaba: +15% = alert
+    (  100_000, 1.30,   50_000),   # > 100K/wk
+    (   10_000, 1.50,    5_000),   # > 10K/wk
+    (        0, 1.75,      500),   # default (low volume)
+]
 MIN_UNTIERED_CALLS  = 500   # minimum 30d calls for an untiered account to surface
 MIN_DORMANT_ALLTIME = 1_000 # minimum all-time calls for a dormant account to surface
+MIN_RAMP_CALLS      = 1_000 # minimum 30d calls for a ramping account to surface
+MIN_RAMP_NEWNESS    = 0.80  # minimum fraction of all-time calls within last 30d
 BURST_COOLDOWN_DAYS = 4     # suppress repeat burst alerts for the same account within N days
 
-# State file — tracks when each account last fired a burst alert
-# Stored next to the script so it persists across Cloud Run executions via the same volume,
-# or falls back to /tmp if the script directory isn't writable (e.g. read-only container).
+# State files — track when each account last fired an alert (burst or ramp).
+# Stored next to the script so they persist across Cloud Run executions via GCS,
+# or fall back to /tmp if the script directory isn't writable (e.g. read-only container).
 _BURST_STATE_FILE = os.path.join(os.path.dirname(__file__), ".burst_state.json")
+_RAMP_STATE_FILE  = os.path.join(os.path.dirname(__file__), ".ramp_state.json")
+
+RAMP_COOLDOWN_DAYS = 7   # suppress repeat ramp alerts for the same account within N days
 
 # Tiers already covered by the standard Tier 1 / Tier 2.A scans
 MONITORED_TIERS = {"1. TARGET ACCOUNT", "Tier 1", "2.A", "Tier 2"}
@@ -194,6 +206,7 @@ def fetch_all_usage(sf, tier_filter: str = TIER1_FILTER) -> list:
 
 
 _GCS_BURST_BLOB = "burst_state.json"
+_GCS_RAMP_BLOB  = "ramp_state.json"
 
 
 def _gcs_bucket():
@@ -256,11 +269,70 @@ def _save_burst_state(state: dict) -> None:
             json.dump(state, f, indent=2)
 
 
+def _load_ramp_state() -> dict:
+    """Load ramp cooldown state from GCS (if configured) or local disk."""
+    bucket = _gcs_bucket()
+    if bucket is not None:
+        try:
+            blob = bucket.blob(_GCS_RAMP_BLOB)
+            if blob.exists():
+                return json.loads(blob.download_as_text())
+            return {}
+        except Exception as e:
+            print(f"  ⚠️  GCS load failed for ramp state, falling back to local: {e}", file=sys.stderr)
+
+    path = _RAMP_STATE_FILE
+    if not os.path.exists(path):
+        path_tmp = "/tmp/.ramp_state.json"
+        if not os.path.exists(path_tmp):
+            return {}
+        path = path_tmp
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_ramp_state(state: dict) -> None:
+    """Persist ramp cooldown state to GCS (if configured) or local disk."""
+    bucket = _gcs_bucket()
+    if bucket is not None:
+        try:
+            bucket.blob(_GCS_RAMP_BLOB).upload_from_string(
+                json.dumps(state, indent=2), content_type="application/json"
+            )
+            return
+        except Exception as e:
+            print(f"  ⚠️  GCS save failed for ramp state, falling back to local: {e}", file=sys.stderr)
+
+    path = _RAMP_STATE_FILE
+    try:
+        with open(path, "w") as f:
+            json.dump(state, f, indent=2)
+    except OSError:
+        path = "/tmp/.ramp_state.json"
+        with open(path, "w") as f:
+            json.dump(state, f, indent=2)
+
+
+def _burst_thresholds(weekly_avg: float) -> tuple[float, int]:
+    """Return (min_ratio, min_delta) for the given weekly average, using BURST_TIERS."""
+    for floor, ratio, delta in BURST_TIERS:
+        if weekly_avg >= floor:
+            return ratio, delta
+    return BURST_TIERS[-1][1], BURST_TIERS[-1][2]
+
+
 def detect_bursts(usage_records: list, dry_run: bool = False) -> dict:
     """
     Aggregate usage per account and return those that clear both burst gates:
-      1. delta (total_7d − weekly_avg) >= MIN_BURST_DELTA
-      2. total_7d >= weekly_avg × MIN_BURST_RATIO
+      1. delta (total_7d − weekly_avg) >= min_delta  (volume-tiered)
+      2. total_7d >= weekly_avg × min_ratio           (volume-tiered)
+
+    Thresholds scale with weekly_avg via BURST_TIERS so large accounts
+    (e.g. Alibaba at 4M+/wk) can still trigger on meaningful growth
+    without needing to double their traffic.
 
     Returns:
     {
@@ -302,9 +374,10 @@ def detect_bursts(usage_records: list, dry_run: bool = False) -> dict:
         total_7d   = acc["total_7d"]
         weekly_avg = acc["total_30d"] / 4
         delta      = total_7d - weekly_avg
+        min_ratio, min_delta = _burst_thresholds(weekly_avg)
         if not (weekly_avg > 0
-                and delta >= MIN_BURST_DELTA
-                and total_7d >= weekly_avg * MIN_BURST_RATIO):
+                and delta >= min_delta
+                and total_7d >= weekly_avg * min_ratio):
             continue
 
         # Cooldown check — suppress if this account already fired within N days
@@ -708,6 +781,197 @@ def print_dormant_report(accounts: list, date_str: str):
     print("─" * 70)
 
 
+# ── Net-new ramp scan ─────────────────────────────────────────────────────────
+
+def fetch_ramp_usage(sf) -> list:
+    """
+    Return Product_User__c records with 30-day activity across all accounts and
+    tiers. Includes all-time and first-call fields needed for newness calculations.
+    """
+    return soql(sf, """
+        SELECT Account__c,
+               Account__r.Name,
+               Account__r.Id,
+               Account__r.Account_Tier__c,
+               Account__r.Region__c,
+               Account__r.BillingCountry,
+               Account__r.Owner.Name,
+               Account__r.Owner.Email,
+               API_Calls_Last_7_Days__c,
+               API_Calls_Last_30_Days__c,
+               API_Calls_per_User_All_Time__c,
+               First_API_Call_Date__c
+        FROM Product_User__c
+        WHERE API_Calls_Last_30_Days__c > 0
+        ORDER BY Account__r.Name
+    """)
+
+
+def detect_ramp(usage_records: list, sf=None,
+                cooldown: bool = True, dry_run: bool = False) -> list:
+    """
+    Aggregate usage by account across all tiers. Surfaces accounts that are
+    net-new (nearly all all-time calls occurred in the last 30 days) and still
+    accelerating (current week outpacing the prior three-week average).
+
+    Filters applied:
+      - total_30d >= MIN_RAMP_CALLS
+      - newness (total_30d / total_alltime) >= MIN_RAMP_NEWNESS
+      - total_7d > (total_30d - total_7d) / 3  (accelerating)
+      - not a known customer (revenue > 0 or closed won in last 12 months)
+      - not in ALERT_BLOCKLIST or UNTIERED_BLOCKLIST
+
+    cooldown=True  — suppress accounts that fired within RAMP_COOLDOWN_DAYS (used for Slack alerts).
+    cooldown=False — show all qualifying accounts regardless of prior alerts (used for console scan).
+
+    Returns list of dicts sorted by total_30d descending.
+    """
+    agg: dict = {}
+    for r in usage_records:
+        acc_ref = r.get("Account__r") or {}
+        acc_id  = r.get("Account__c") or acc_ref.get("Id", "")
+        if not acc_id:
+            continue
+
+        raw_first = r.get("First_API_Call_Date__c")
+        first_dt  = date.fromisoformat(raw_first[:10]) if raw_first else None
+
+        if acc_id not in agg:
+            region = acc_ref.get("Region__c") or acc_ref.get("BillingCountry") or "—"
+            agg[acc_id] = {
+                "name":            acc_ref.get("Name", "Unknown"),
+                "sf_id":           acc_ref.get("Id", acc_id),
+                "tier":            acc_ref.get("Account_Tier__c") or "—",
+                "region":          region,
+                "owner_name":      (acc_ref.get("Owner") or {}).get("Name", ""),
+                "owner_email":     (acc_ref.get("Owner") or {}).get("Email", ""),
+                "total_7d":        0,
+                "total_30d":       0,
+                "total_alltime":   0,
+                "active_users":    0,
+                "first_call_date": first_dt,
+            }
+
+        agg[acc_id]["total_7d"]      += int(r.get("API_Calls_Last_7_Days__c")       or 0)
+        agg[acc_id]["total_30d"]     += int(r.get("API_Calls_Last_30_Days__c")      or 0)
+        agg[acc_id]["total_alltime"] += int(r.get("API_Calls_per_User_All_Time__c") or 0)
+        agg[acc_id]["active_users"]  += 1
+
+        if first_dt and (agg[acc_id]["first_call_date"] is None
+                         or first_dt < agg[acc_id]["first_call_date"]):
+            agg[acc_id]["first_call_date"] = first_dt
+
+    # Volume floor + blocklists
+    candidates = {
+        acc_id: acc
+        for acc_id, acc in agg.items()
+        if acc["total_30d"] >= MIN_RAMP_CALLS
+        and not is_blocked(acc["name"])
+        and not is_untiered_blocked(acc["name"])
+    }
+
+    # Newness + acceleration gates
+    ramping: dict = {}
+    for acc_id, acc in candidates.items():
+        alltime  = acc["total_alltime"]
+        calls30d = acc["total_30d"]
+        calls7d  = acc["total_7d"]
+        if alltime == 0:
+            continue
+        newness          = calls30d / alltime
+        weekly_prior_avg = (calls30d - calls7d) / 3
+        if newness >= MIN_RAMP_NEWNESS and calls7d > weekly_prior_avg:
+            ramping[acc_id] = {**acc, "newness": round(newness, 3),
+                               "weekly_prior_avg": round(weekly_prior_avg, 1)}
+
+    # Customer exclusion — same two-pass logic as detect_untiered / detect_dormant
+    customer_ids: set[str] = set()
+    if sf and ramping:
+        rev_records = soql_in_chunks(sf,
+            "SELECT Id, Total_Revenue_Closed_Won__c FROM Account WHERE Id IN ('{id_list}')",
+            list(ramping.keys()))
+        revenue_customer_ids = {
+            r["Id"] for r in rev_records
+            if (r.get("Total_Revenue_Closed_Won__c") or 0) > 0
+        }
+
+        opp_records = soql_in_chunks(sf,
+            "SELECT AccountId FROM Opportunity WHERE AccountId IN ('{id_list}') "
+            "AND StageName = 'Closed Won' AND CloseDate >= LAST_N_DAYS:365",
+            list(ramping.keys()))
+        recent_closedwon_ids = {r["AccountId"] for r in opp_records}
+
+        customer_ids = revenue_customer_ids | recent_closedwon_ids
+        if customer_ids:
+            customer_names = [ramping[cid]["name"] for cid in customer_ids if cid in ramping]
+            print(f"  Excluding {len(customer_ids)} customer(s) from ramp results: "
+                  f"{', '.join(customer_names)}", file=sys.stderr)
+
+    # Cooldown — suppress accounts that already fired a ramp alert within N days
+    state       = _load_ramp_state() if cooldown else {}
+    today_s     = date.today().isoformat()
+    state_dirty = False
+
+    results = []
+    for acc_id, acc in ramping.items():
+        if acc_id in customer_ids:
+            continue
+        if cooldown:
+            last_fired = state.get(acc_id)
+            if last_fired:
+                days_since = (date.today() - date.fromisoformat(last_fired)).days
+                if days_since < RAMP_COOLDOWN_DAYS:
+                    print(f"  ⏸  Ramp suppressed for {acc['name']} "
+                          f"(last fired {days_since}d ago, cooldown={RAMP_COOLDOWN_DAYS}d)",
+                          file=sys.stderr)
+                    continue
+            state[acc_id] = today_s
+            state_dirty   = True
+        results.append(acc)
+
+    if state_dirty and not dry_run:
+        _save_ramp_state(state)
+    elif state_dirty and dry_run:
+        print("  ℹ️  Dry-run: ramp state NOT saved (cooldown unchanged)", file=sys.stderr)
+
+    results.sort(key=lambda a: -a["total_30d"])
+    return results
+
+
+def print_ramp_report(accounts: list, date_str: str):
+    """Print a ranked console report of net-new ramping accounts."""
+    print(f"\n── Net-New Ramp Scan — {date_str} {'─' * 29}")
+    print(f"   All tiers · ≥ {MIN_RAMP_CALLS:,} calls/30d · "
+          f"≥ {MIN_RAMP_NEWNESS:.0%} of all-time in last 30d · accelerating\n")
+
+    if not accounts:
+        print("   No ramping accounts found.")
+        return
+
+    name_w  = min(max(len(a["name"])       for a in accounts), 40)
+    owner_w = min(max(len(a["owner_name"]) for a in accounts), 22)
+
+    header = (f"  {'#':>3}  {'Account':<{name_w}}  {'Tier':<12}  "
+              f"{'30d calls':>10}  {'7d calls':>9}  {'Newness':>7}  "
+              f"{'First call':<12}  {'Users':>5}  {'Owner':<{owner_w}}")
+    print(header)
+    print("  " + "─" * (len(header) - 2))
+
+    for i, acc in enumerate(accounts, 1):
+        name       = acc["name"][:name_w]
+        owner      = acc["owner_name"][:owner_w]
+        first_call = acc["first_call_date"].strftime("%Y-%m-%d") if acc["first_call_date"] else "—"
+        print(
+            f"  {i:>3}.  {name:<{name_w}}  {acc['tier']:<12}  "
+            f"{acc['total_30d']:>10,}  {acc['total_7d']:>9,}  "
+            f"{acc['newness']:>6.0%}  {first_call:<12}  "
+            f"{acc['active_users']:>5}  {owner:<{owner_w}}"
+        )
+
+    print(f"\n  {len(accounts)} account(s) found")
+    print("─" * 70)
+
+
 # ── Slack helpers ──────────────────────────────────────────────────────────────
 
 _slack_id_cache: dict[str, str] = {}
@@ -902,7 +1166,7 @@ def group_signals(records: list, lookback_cutoff: date) -> dict:
 
 # ── Message building ───────────────────────────────────────────────────────────
 
-def build_alert_lines(accounts: dict, bursts: dict, bot_token: str,
+def build_alert_lines(accounts: dict, bursts: dict, ramping: list, bot_token: str,
                       test_email: str | None, date_str: str) -> list[str]:
     """
     Build one alert line per signal event (not per account).
@@ -947,6 +1211,16 @@ def build_alert_lines(accounts: dict, bursts: dict, bot_token: str,
             f"• *<{sf_url}|{name}>* — usage spike: *{acc['total_7d']:,} API calls* "
             f"this week vs *{acc['weekly_avg']:,.0f}/wk* avg "
             f"(+{acc['delta']:,}). {mention}"
+        )
+
+    # ── Ramp signals ───────────────────────────────────────────────────────────
+    for acc in sorted(ramping, key=lambda a: a["name"]):
+        sf_url  = SF_BASE + acc["sf_id"]
+        mention = owner_mention(bot_token, acc["owner_email"], acc["owner_name"], test_email)
+        first   = acc["first_call_date"].strftime("%b %-d") if acc["first_call_date"] else "recently"
+        lines.append(
+            f"• *<{sf_url}|{acc['name']}>* — net-new ramp: *{acc['total_30d']:,} API calls* "
+            f"in the last 30d ({acc['newness']:.0%} new, started {first}). {mention}"
         )
 
     return lines
@@ -1030,6 +1304,9 @@ def main():
     parser.add_argument("--dormant", action="store_true",
                         help="Scan untiered prospects with zero usage in the last 30d but significant "
                              "all-time history. Always dry-run — never posts to Slack")
+    parser.add_argument("--ramp", action="store_true",
+                        help="Scan all accounts (any tier) for net-new accelerating usage. "
+                             "Always dry-run — never posts to Slack")
     args = parser.parse_args()
 
     load_dotenv(ENV_PATH)
@@ -1051,6 +1328,20 @@ def main():
         accounts = detect_dormant(usage_records, sf=sf)
         print(f"  {len(accounts)} dormant untiered prospect(s) above threshold (customers excluded)")
         print_dormant_report(accounts, date_str)
+        return
+
+    # --ramp: net-new accelerating accounts across all tiers, always dry-run
+    if args.ramp:
+        print(f"Date: {date_str}  |  Mode: Net-new ramp scan  |  "
+              f"Floor: {MIN_RAMP_CALLS:,} calls/30d  |  Newness: ≥{MIN_RAMP_NEWNESS:.0%}")
+        print("Connecting to Salesforce...")
+        sf = connect_sf()
+        print("Fetching usage records (all accounts)...")
+        usage_records = fetch_ramp_usage(sf)
+        print(f"  {len(usage_records)} active user record(s) found")
+        accounts = detect_ramp(usage_records, sf=sf, cooldown=False)
+        print(f"  {len(accounts)} ramping account(s) found (customers excluded)")
+        print_ramp_report(accounts, date_str)
         return
 
     # --untiered: scan accounts outside Tier 1/2.A by usage volume, always dry-run
@@ -1089,6 +1380,7 @@ def main():
         args.dry_run = True  # simulate never posts to the real channel
         accounts = {acc["sf_id"]: acc for acc in SIMULATE_ACCOUNTS}
         bursts   = SIMULATE_BURSTS
+        ramping  = []
     else:
         print("Connecting to Salesforce...")
         sf = connect_sf()
@@ -1102,14 +1394,20 @@ def main():
         bursts = detect_bursts(usage_records, dry_run=args.dry_run)
         print(f"  {len(bursts)} burst account(s) detected")
 
-        if not records and not bursts:
+        print("Fetching usage data for ramp detection...")
+        ramp_records = fetch_ramp_usage(sf)
+        ramping = detect_ramp(ramp_records, sf=sf, cooldown=True, dry_run=args.dry_run)
+        ramping = [a for a in ramping if a["sf_id"] not in bursts]
+        print(f"  {len(ramping)} ramping account(s) detected")
+
+        if not records and not bursts and not ramping:
             print(f"No signals found for {tier_label} accounts.")
             return
 
         accounts = group_signals(records, lookback_cutoff) if records else {}
         print(f"  New users across {len(accounts)} account(s)")
 
-    lines = build_alert_lines(accounts, bursts, bot_token, test_email or None, date_str)
+    lines = build_alert_lines(accounts, bursts, ramping, bot_token, test_email or None, date_str)
 
     if not lines:
         print(f"No actionable signals for {tier_label} accounts.")
