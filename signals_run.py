@@ -1217,10 +1217,10 @@ def build_alert_lines(accounts: dict, bursts: dict, ramping: list, bot_token: st
     for acc in sorted(ramping, key=lambda a: a["name"]):
         sf_url  = SF_BASE + acc["sf_id"]
         mention = owner_mention(bot_token, acc["owner_email"], acc["owner_name"], test_email)
-        first   = acc["first_call_date"].strftime("%b %-d") if acc["first_call_date"] else "recently"
+        since = acc["first_call_date"].strftime("%b %-d") if acc["first_call_date"] else "recently"
         lines.append(
             f"• *<{sf_url}|{acc['name']}>* — net-new ramp: *{acc['total_30d']:,} API calls* "
-            f"in the last 30d ({acc['newness']:.0%} new, started {first}). {mention}"
+            f"since {since}. {mention}"
         )
 
     return lines
