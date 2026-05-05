@@ -398,21 +398,25 @@ def get_google_creds(creds_file: str):
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-        else:
-            if not creds_file or not os.path.exists(creds_file):
-                print(f"❌ Google credentials file not found: {creds_file}", file=sys.stderr)
-                sys.exit(1)
+        elif creds_file and os.path.exists(creds_file):
+            # Local dev: run OAuth browser flow
             flow = InstalledAppFlow.from_client_secrets_file(creds_file, GOOGLE_SCOPES)
             creds = flow.run_local_server(port=0)
-        try:
-            GOOGLE_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-            GOOGLE_TOKEN_PATH.write_text(creds.to_json())
-        except OSError:
-            Path("/tmp/google_token_x_analysis.json").write_text(creds.to_json())
-    if creds:
+        else:
+            # No local token and no creds file — fall through to ADC below
+            creds = None
+
+        if creds:
+            try:
+                GOOGLE_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+                GOOGLE_TOKEN_PATH.write_text(creds.to_json())
+            except OSError:
+                Path("/tmp/google_token_x_analysis.json").write_text(creds.to_json())
+
+    if creds and creds.valid:
         return creds
 
-    # Application Default Credentials (fallback)
+    # Application Default Credentials (Cloud Run service account / ADC)
     try:
         import google.auth
         creds, _ = google.auth.default(scopes=GOOGLE_SCOPES)
