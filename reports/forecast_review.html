@@ -388,8 +388,8 @@
 <!-- Tab nav -->
 <div class="tab-nav">
   <button class="tab-btn active" data-tab="tab-snapshot" onclick="showTab('tab-snapshot')">Forecast</button>
-  <button class="tab-btn" data-tab="tab-paygo" onclick="showTab('tab-paygo')">PayGo</button>
   <button class="tab-btn" data-tab="tab-pipeline" onclick="showTab('tab-pipeline')">Pipeline</button>
+  <button class="tab-btn" data-tab="tab-paygo" onclick="showTab('tab-paygo')">PayGo</button>
   <button class="tab-btn" data-tab="tab-changes" onclick="showTab('tab-changes')">Deal Changes</button>
   <button class="tab-btn" data-tab="tab-activity" onclick="showTab('tab-activity')">AE Activity</button>
   <button class="tab-btn" data-tab="tab-usage" onclick="showTab('tab-usage')">Usage Signals</button>
@@ -2739,7 +2739,7 @@ function renderUsageTable() {
 }
 
 // ===================== INIT =====================
-const VALID_TABS = ['tab-snapshot','tab-paygo','tab-pipeline','tab-changes','tab-activity','tab-usage','tab-sources'];
+const VALID_TABS = ['tab-snapshot','tab-pipeline','tab-paygo','tab-changes','tab-activity','tab-usage','tab-sources'];
 document.addEventListener('DOMContentLoaded', () => {
   // Measure real header height so the sticky tab nav sits flush beneath it
   const hdr = document.querySelector('.page-header');

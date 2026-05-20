@@ -15,6 +15,7 @@ import shutil
 import sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 sys.path.insert(0, "/Users/nick/Prospecting")
 from dotenv import load_dotenv
@@ -37,6 +38,8 @@ GONG_BASE = "https://us-64844.api.gong.io"
 
 OUTPUT_PATH   = "/Users/nick/Prospecting/reports/forecast_data.json"
 PREV_PATH     = "/Users/nick/Prospecting/reports/forecast_snapshot_prev.json"
+
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "")
 
 QUOTAS = {
     "Andrew Miller-McKeever": 175000,
@@ -1256,11 +1259,29 @@ def main():
         shutil.copy2(OUTPUT_PATH, PREV_PATH)
         print(f"\nSnapshot saved: {PREV_PATH}")
 
-    # Write new output
+    # Write new output locally
     with open(OUTPUT_PATH, "w") as f:
         json.dump(output, f, indent=2, default=str)
-
     print(f"Output written: {OUTPUT_PATH}")
+
+    # Upload to GCS if configured
+    if GCS_BUCKET:
+        try:
+            from google.cloud import storage as _gcs
+            client = _gcs.Client()
+            bucket = client.bucket(GCS_BUCKET)
+            # Upload current
+            blob = bucket.blob("forecast_data.json")
+            blob.upload_from_filename(OUTPUT_PATH, content_type="application/json")
+            print(f"Uploaded to gs://{GCS_BUCKET}/forecast_data.json")
+            # Upload prev snapshot
+            if os.path.exists(PREV_PATH):
+                prev_blob = bucket.blob("forecast_snapshot_prev.json")
+                prev_blob.upload_from_filename(PREV_PATH, content_type="application/json")
+                print(f"Uploaded to gs://{GCS_BUCKET}/forecast_snapshot_prev.json")
+        except Exception as gcs_err:
+            print(f"⚠ GCS upload failed (local file still written): {gcs_err}", file=sys.stderr)
+
     print(f"Done. Generated at {generated}")
 
 

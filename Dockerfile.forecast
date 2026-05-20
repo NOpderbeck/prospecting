@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+# Deps layer
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# App files
+COPY forecast_server.py forecast_refresh.py ./
+COPY reports/forecast_review.html reports/
+
+# Cloud Run listens on $PORT (default 8080)
+ENV PORT=8080
+CMD ["python3", "forecast_server.py"]
