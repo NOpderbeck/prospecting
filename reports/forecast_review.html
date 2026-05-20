@@ -1,0 +1,2903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Forecast Review</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+  :root {
+    --bg:        #152235;
+    --surface:   #0d1825;
+    --card:      #08111c;
+    --border:    #1a3050;
+    --border-hi: #1e3a60;
+    --accent:    #00c8e8;
+    --accent-dim:#0e7a93;
+    --text-hi:   #f8fafc;
+    --text:      #b8cfe4;
+    --text-dim:  #5a7a96;
+    --green:     #00e5a0;
+    --amber:     #f59e0b;
+    --red:       #f05252;
+    --mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); font-size: 13px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: #fff; }
+
+  /* Header */
+  .page-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    border-top: 2px solid var(--accent);
+    padding: 10px 24px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 200;
+  }
+  .page-header h1 {
+    font-family: var(--mono);
+    font-size: 13px; font-weight: 700; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.15em; white-space: nowrap;
+  }
+  .header-week-tag {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    background: var(--card); border: 1px solid var(--border);
+    padding: 3px 10px; letter-spacing: 0.08em;
+  }
+  .header-meta { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-left: auto; text-align: right; white-space: nowrap; }
+  .header-meta strong { color: var(--text); }
+  .team-metrics { display: flex; gap: 20px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); border-left: 1px solid var(--border); padding-left: 18px; }
+  .team-metric { white-space: nowrap; font-family: var(--mono); font-size: 11px; }
+  .team-metric strong { color: var(--text-hi); }
+
+  /* Tab nav */
+  .tab-nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex; gap: 0; flex-wrap: wrap;
+    position: sticky; top: var(--header-h, 43px); z-index: 199;
+  }
+  .tab-btn {
+    background: transparent; border: none;
+    border-bottom: 2px solid transparent;
+    padding: 12px 18px; font-size: 11px; font-weight: 700; color: var(--text-dim);
+    cursor: pointer; transition: color 0.15s, border-color 0.15s; white-space: nowrap;
+    text-transform: uppercase; letter-spacing: 0.09em; font-family: var(--mono);
+  }
+  .tab-btn:hover { color: var(--text); border-bottom-color: var(--border-hi); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Content */
+  .tab-content { display: none; padding: 18px 24px; max-width: 1440px; margin: 0 auto; }
+  .tab-content.active { display: block; }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    padding: 16px 20px;
+  }
+  .card-title {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.12em;
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-title::before {
+    content: '//'; color: var(--accent-dim); font-weight: 400;
+  }
+
+  /* Grid layouts */
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .grid-2 > *, .grid-4 > * { min-width: 0; }
+  .grid-1 { margin-bottom: 10px; }
+  @media (max-width: 900px) { .grid-4 { grid-template-columns: repeat(2,1fr); } .grid-2 { grid-template-columns: 1fr; } }
+  @media (max-width: 500px) { .grid-4 { grid-template-columns: 1fr; } }
+
+  /* Metric card */
+  .metric-value {
+    font-family: var(--mono); font-size: 30px; font-weight: 700;
+    color: var(--text-hi); line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 5px; }
+  .metric-pct { font-size: 14px; font-weight: 700; margin-left: 6px; }
+  .delta-badge {
+    display: inline-block; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    padding: 2px 8px; border-radius: 0; margin-top: 7px; letter-spacing: 0.04em;
+  }
+  .delta-up   { background: rgba(0,229,160,0.1); color: var(--green); border: 1px solid rgba(0,229,160,0.25); }
+  .delta-down { background: rgba(240,82,82,0.1); color: var(--red);   border: 1px solid rgba(240,82,82,0.25); }
+
+  /* Tables */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .data-table th {
+    background: var(--surface); color: var(--text-dim); font-family: var(--mono);
+    font-weight: 700; text-align: left; padding: 8px 12px;
+    border-bottom: 1px solid var(--border-hi); white-space: nowrap;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
+  }
+  .data-table td {
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: middle; color: var(--text);
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: rgba(0,200,232,0.03); color: var(--text-hi); }
+  .team-divider td { border-top: 1px solid rgba(0,200,232,0.2); }
+  .td-truncate { max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Progress bar (table) */
+  .progress-wrap { width: 100px; background: var(--border); border-radius: 0; height: 6px; overflow: hidden; display: inline-block; vertical-align: middle; }
+  .progress-fill { height: 6px; border-radius: 0; }
+
+  /* Deal change cards */
+  /* Opp detail modal */
+  .opp-modal-overlay {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65);
+    z-index:1000; align-items:center; justify-content:center;
+  }
+  .opp-modal-overlay.open { display:flex; }
+  .opp-modal {
+    background:var(--surface); border:1px solid var(--border-hi);
+    border-top:3px solid var(--accent); width:480px; max-width:95vw;
+    max-height:85vh; overflow-y:auto; padding:24px 28px; position:relative;
+  }
+  .opp-modal-close {
+    position:absolute; top:12px; right:16px; background:none; border:none;
+    color:var(--dim); font-size:18px; cursor:pointer; line-height:1;
+  }
+  .opp-modal-close:hover { color:var(--text-hi); }
+  .opp-modal h2 { font-family:var(--mono); font-size:13px; color:var(--accent);
+                  text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px; }
+  .opp-modal-sub { font-family:var(--mono); font-size:10px; color:var(--dim); margin-bottom:20px; }
+  .opp-modal-section { font-family:var(--mono); font-size:9px; font-weight:700;
+                       letter-spacing:0.12em; text-transform:uppercase; color:var(--dim);
+                       border-bottom:1px solid var(--border); padding-bottom:4px; margin:16px 0 10px; }
+  .opp-modal-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px 24px; }
+  .opp-modal-field label { font-family:var(--mono); font-size:9px; color:var(--dim);
+                           text-transform:uppercase; letter-spacing:0.08em; display:block; margin-bottom:3px; }
+  .opp-modal-field .val { font-family:var(--mono); font-size:14px; font-weight:700; color:var(--text-hi); }
+  .opp-modal-field .val.nil { color:var(--border-hi); font-size:11px; }
+  .opp-modal-field.full { grid-column:1/-1; }
+  .opp-modal-loading { text-align:center; font-family:var(--mono); font-size:11px;
+                       color:var(--dim); padding:32px 0; }
+
+  /* PayGo deal modal */
+  .pago-modal {
+    background:var(--surface); border:1px solid var(--border-hi);
+    border-top:3px solid #a78bfa; width:680px; max-width:96vw;
+    max-height:88vh; overflow-y:auto; padding:28px 32px; position:relative;
+  }
+  .pago-modal h2 { font-family:var(--mono); font-size:15px; color:var(--text-hi);
+                   letter-spacing:0.04em; margin:0 0 3px; }
+  .pago-modal-rep { font-family:var(--mono); font-size:11px; color:#64748b; margin-bottom:20px; }
+  .pago-modal-meta { display:flex; gap:28px; margin-bottom:24px; }
+  .pago-modal-meta-item label {
+    display:block; font-family:var(--mono); font-size:9px; font-weight:700;
+    text-transform:uppercase; letter-spacing:0.1em; color:#475569; margin-bottom:4px;
+  }
+  .pago-modal-meta-item .v {
+    font-family:var(--mono); font-size:15px; font-weight:700; color:var(--text-hi);
+  }
+  .pago-modal-section {
+    font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:0.12em;
+    text-transform:uppercase; color:#475569;
+    border-bottom:1px solid var(--border); padding-bottom:4px; margin:20px 0 14px;
+  }
+  .pago-modal-targets { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 20px; }
+  .pago-modal-target label {
+    display:block; font-family:var(--mono); font-size:9px; text-transform:uppercase;
+    letter-spacing:0.08em; color:#475569; margin-bottom:3px;
+  }
+  .pago-modal-target .v { font-family:var(--mono); font-size:16px; font-weight:700; }
+
+  /* Deal Changes — lane view */
+  .dc-filters  { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .dc-summary  { font-family:var(--mono); font-size:11px; color:var(--dim); margin-left:auto; }
+  .dc-lanes    { display:flex; gap:8px; overflow-x:auto; padding-bottom:12px; align-items:flex-start; }
+  .dc-col      { flex:0 0 155px; min-width:155px; }
+  .dc-col-hdr  {
+    font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:0.12em;
+    text-transform:uppercase; color:var(--dim); padding:6px 8px 5px;
+    border-bottom:2px solid var(--border); margin-bottom:6px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .dc-col-hdr.won-hdr   { border-bottom-color:var(--green); color:var(--green); }
+  .dc-col-hdr.lost-hdr  { border-bottom-color:var(--red);   color:var(--red); }
+  .dc-col-count { font-size:9px; opacity:.6; }
+  .dc-mini {
+    background:var(--card); border:1px solid var(--border);
+    border-top:2px solid var(--border-hi);
+    padding:7px 9px; margin-bottom:4px; cursor:default;
+  }
+  .dc-mini.m-won      { border-top-color:var(--green); }
+  .dc-mini.m-lost     { border-top-color:var(--red); }
+  .dc-mini.m-advanced { border-top-color:var(--accent); }
+  .dc-mini.m-regressed{ border-top-color:var(--amber); }
+  .dc-mini.m-slipped  { border-top-color:#a855f7; }
+  .dc-mini.m-pulled   { border-top-color:#475569; }
+  .dc-mini-top  { display:flex; justify-content:space-between; align-items:flex-start; gap:4px; margin-bottom:3px; }
+  .dc-mini-name { font-size:11px; font-weight:700; color:var(--text-hi); line-height:1.3;
+                  overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .dc-mini-badge{ font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:0.08em;
+                  padding:1px 5px; border:1px solid; text-transform:uppercase; white-space:nowrap; flex-shrink:0; }
+  .dc-mini-badge.won      { color:var(--green); border-color:var(--green); }
+  .dc-mini-badge.lost     { color:var(--red);   border-color:var(--red); }
+  .dc-mini-badge.advanced      { color:var(--accent); border-color:var(--accent); }
+  .dc-mini-badge.advanced.multi{ background:var(--accent); color:var(--surface); border-color:var(--accent); font-weight:900; }
+  .dc-mini-badge.regressed     { color:var(--amber);  border-color:var(--amber); }
+  .dc-mini-badge.regressed.multi{ background:var(--amber); color:var(--surface); border-color:var(--amber); font-weight:900; }
+  .dc-mini-badge.slip-minor   { color:#64748b;       border-color:#64748b; }   /* < 14d  */
+  .dc-mini-badge.slip-moderate{ color:var(--amber);  border-color:var(--amber); } /* 14–60d */
+  .dc-mini-badge.slip-severe  { color:var(--red);    border-color:var(--red); }   /* > 60d  */
+  .dc-mini.m-slip-minor       { border-top-color:#64748b; }
+  .dc-mini.m-slip-moderate    { border-top-color:var(--amber); }
+  .dc-mini.m-slip-severe      { border-top-color:var(--red); }
+  .dc-mini-badge.pulled       { color:#475569;       border-color:#475569; }
+  /* Days-in-stage badge severity */
+  .dc-mini-badge.dis-fresh    { color:var(--green);  border-color:var(--green); }   /* 0–7d  */
+  .dc-mini-badge.dis-normal   { color:#475569;       border-color:#475569; }         /* 8–30d */
+  .dc-mini-badge.dis-aging    { color:var(--amber);  border-color:var(--amber); }   /* 31–60d */
+  .dc-mini-badge.dis-stale    { color:var(--red);    border-color:var(--red); }     /* 61d+  */
+  .dc-mini-amt  { font-family:var(--mono); font-size:10px; font-weight:700; color:var(--text-hi); }
+  .dc-mini-meta { font-family:var(--mono); font-size:9px; color:var(--dim); }
+  .dc-empty    { font-family:var(--mono); font-size:11px; color:var(--dim); padding:32px 0; text-align:center; }
+  .dc-col-empty { font-family:var(--mono); font-size:9px; color:var(--border-hi); padding:8px 0; text-align:center; }
+
+  /* Sub-tabs (usage) */
+  .sub-tabs { display: flex; gap: 0; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .sub-tab {
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    padding: 8px 18px; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--text-dim); cursor: pointer; text-transform: uppercase;
+    letter-spacing: 0.09em; transition: all 0.15s;
+  }
+  .sub-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Signal badges */
+  .signal-badge {
+    display: inline-block; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 0; margin: 2px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .sig-new_activity { background: rgba(0,229,160,0.1);  color: var(--green); border: 1px solid rgba(0,229,160,0.25); }
+  .sig-growth       { background: rgba(0,200,232,0.1);  color: var(--accent); border: 1px solid rgba(0,200,232,0.25); }
+  .sig-multi_user   { background: rgba(167,139,250,0.1); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25); }
+  .sig-sales_gap    { background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
+  .sig-risk         { background: rgba(240,82,82,0.1);  color: var(--red);   border: 1px solid rgba(240,82,82,0.25); }
+  .sig-no_signal    { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+
+  /* PAGO usage progress bar */
+  .pago-bar-outer { padding: 0 8px 0 0; }
+  .pago-bar-track {
+    position: relative; height: 18px; background: #0a1a2e;
+    border-radius: 6px; overflow: visible;
+  }
+  .pago-bar-fill {
+    position: absolute; left: 0; top: 0; height: 100%;
+    background: linear-gradient(90deg, #00c8e8, #00e5a0);
+    border-radius: 6px; max-width: 100%;
+    transition: width 0.5s ease;
+  }
+  .pago-bar-marker {
+    position: absolute; top: -4px; bottom: -4px; width: 3px; border-radius: 2px;
+  }
+  .pago-bar-marker-m3 { background: #334155; }
+  .pago-bar-marker-ss { background: #f59e0b; }
+  .pago-bar-marker-up { background: #a78bfa; }
+  .pago-bar-stat {
+    margin-top: 7px; font-family: var(--mono); font-size: 12px; font-weight: 700;
+  }
+
+  /* Signal chips */
+  .signal-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sig-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 0;
+    padding: 6px 14px; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim);
+  }
+  .sig-chip .count { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* Warn card */
+  .warn-card { background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 0; padding: 10px 16px; color: var(--amber); font-size: 12px; margin-bottom: 10px; font-family: var(--mono); }
+
+  /* Empty / Loading */
+  .empty-state { text-align: center; color: var(--text-dim); padding: 40px; font-family: var(--mono); font-size: 12px; }
+  #loading { text-align: center; padding: 60px; color: var(--text-dim); font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* Gong table */
+  .rep-group-header td { background: var(--surface) !important; font-family: var(--mono); font-size: 10px; color: var(--text-dim) !important; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* Volume bar */
+  .vol-bar-wrap { width: 80px; background: var(--border); border-radius: 0; height: 4px; display: inline-block; vertical-align: middle; }
+  .vol-bar-fill { height: 4px; border-radius: 0; background: var(--accent); }
+
+  /* Canvas */
+  .chart-wrap { position: relative; width: 100%; }
+
+  /* Quota progress bar toggles */
+  .qpb-toggle {
+    background: transparent; border: 1px solid var(--border); border-radius: 0;
+    padding: 5px 14px; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .qpb-toggle:hover { border-color: var(--accent); color: var(--text); }
+  .qpb-toggle.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .qpb-period {
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    padding: 6px 16px; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .qpb-period:hover { color: var(--text); }
+  .qpb-period.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Sortable table headers */
+  .sortable-th { cursor: pointer; user-select: none; }
+  .sortable-th:hover { color: var(--accent); }
+  .sortable-th.sort-active { color: var(--accent); }
+  .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.5; font-style: normal; }
+  .sort-active .sort-arrow { opacity: 1; color: var(--accent); }
+
+  /* Refresh button */
+  #refresh-btn {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent-dim); padding: 6px 14px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    display: flex; align-items: center; gap: 6px;
+  }
+  #refresh-btn:hover { background: var(--accent); color: var(--bg); }
+  #refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #refresh-btn.loading #refresh-icon { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Scanline overlay effect */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px
+    );
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="page-header">
+  <h1>YDC &nbsp;// &nbsp;Forecast</h1>
+  <div class="header-meta" id="header-refresh"></div>
+  <button id="refresh-btn" onclick="triggerRefresh()" title="Re-pull latest data from Salesforce &amp; Gong">
+    <span id="refresh-icon">↺</span> <span id="refresh-label">Refresh</span>
+  </button>
+</div>
+
+<!-- Tab nav -->
+<div class="tab-nav">
+  <button class="tab-btn active" data-tab="tab-snapshot" onclick="showTab('tab-snapshot')">Forecast</button>
+  <button class="tab-btn" data-tab="tab-paygo" onclick="showTab('tab-paygo')">PayGo</button>
+  <button class="tab-btn" data-tab="tab-pipeline" onclick="showTab('tab-pipeline')">Pipeline</button>
+  <button class="tab-btn" data-tab="tab-changes" onclick="showTab('tab-changes')">Deal Changes</button>
+  <button class="tab-btn" data-tab="tab-activity" onclick="showTab('tab-activity')">AE Activity</button>
+  <button class="tab-btn" data-tab="tab-usage" onclick="showTab('tab-usage')">Usage Signals</button>
+  <button class="tab-btn" data-tab="tab-sources" onclick="showTab('tab-sources')">Opp Sources</button>
+</div>
+
+<div id="loading">// Loading forecast data…</div>
+
+<!-- ===================== TAB 1: FORECAST SNAPSHOT ===================== -->
+<div class="tab-content active" id="tab-snapshot">
+
+  <!-- Quota Progress Bar -->
+  <div class="card grid-1" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div class="card-title" style="margin-bottom:0">Closed Won vs. Quota</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <!-- Period toggle -->
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--border)"  >
+          <button class="qpb-period active" data-period="cq" onclick="setQuotaPeriod('cq',this)">Current Quarter</button>
+          <button class="qpb-period" data-period="fy" onclick="setQuotaPeriod('fy',this)">Fiscal Year</button>
+        </div>
+        <!-- Team toggle -->
+        <div style="display:flex;gap:6px">
+          <button class="qpb-toggle active" onclick="setQuotaTeam('all',this)">All</button>
+          <button class="qpb-toggle" onclick="setQuotaTeam('nick',this)">Team Nick</button>
+          <button class="qpb-toggle" onclick="setQuotaTeam('ivy',this)">Team Ivy</button>
+        </div>
+      </div>
+    </div>
+    <!-- Period label -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-bottom:10px;letter-spacing:0.06em" id="qpb-period-label"></div>
+    <div id="quota-pb-labels" style="display:flex;align-items:baseline;gap:12px;margin-bottom:12px">
+      <span id="qpb-cw" style="font-family:var(--mono);font-size:32px;font-weight:700;color:var(--text-hi);font-variant-numeric:tabular-nums"></span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">/ quota</span>
+      <span id="qpb-quota" style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--text)"></span>
+      <span id="qpb-pct" style="font-family:var(--mono);font-size:20px;font-weight:700;margin-left:4px"></span>
+    </div>
+    <div style="background:var(--border);height:18px;overflow:hidden;position:relative">
+      <div id="qpb-fill" style="height:100%;transition:width 0.5s ease;position:relative"></div>
+      <div id="qpb-fill-label" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:10px;font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:0.05em"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:5px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">
+      <span>$0</span>
+      <span id="qpb-quota-label"></span>
+    </div>
+
+    <!-- Quarter timeline -->
+    <div style="margin-top:18px" id="qtr-timeline-wrap">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:0.06em">QUARTER PROGRESS</span>
+        <span id="qtr-timeline-label" style="font-family:var(--mono);font-size:10px;color:var(--text-dim)"></span>
+      </div>
+      <div style="background:var(--border);height:6px;position:relative;overflow:visible">
+        <!-- elapsed fill -->
+        <div id="qtr-elapsed-fill" style="height:100%;background:var(--accent);opacity:0.35;transition:width 0.4s ease"></div>
+        <!-- today marker -->
+        <div id="qtr-today-marker" style="position:absolute;top:-4px;width:2px;height:14px;background:var(--accent);transform:translateX(-50%)">
+          <span style="position:absolute;top:16px;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:9px;color:var(--accent);white-space:nowrap;font-weight:700">TODAY</span>
+        </div>
+      </div>
+      <!-- Month tick marks -->
+      <div style="position:relative;height:18px;margin-top:2px" id="qtr-month-ticks"></div>
+    </div>
+  </div>
+
+  <div class="grid-4" id="snap-metrics"></div>
+
+  <!-- Rep Quota Attainment (collapsible) -->
+  <div class="grid-1 card">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" onclick="toggleRepTable()">
+      <div class="card-title" style="margin-bottom:0">Rep Quota Attainment</div>
+      <span id="rep-table-chevron" style="font-family:var(--mono);font-size:14px;color:var(--text-dim);transition:transform 0.2s">▾</span>
+    </div>
+    <div id="rep-table-wrap" style="overflow-x:auto;margin-top:12px">
+      <table class="data-table" id="rep-table">
+        <thead id="rep-table-head"></thead>
+        <tbody id="rep-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CQ Deal List -->
+  <div class="grid-1 card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div class="card-title" style="margin-bottom:0">CQ Deal List <span id="cq-deal-count" style="font-size:11px;font-weight:400;color:var(--text-dim);margin-left:6px"></span></div>
+      <div style="display:flex;gap:6px;align-items:center" id="cq-filter-btns">
+        <button class="qpb-toggle active" onclick="setCQFilter('all',this)">All</button>
+        <button class="qpb-toggle" onclick="setCQFilter('open',this)">Open</button>
+        <button class="qpb-toggle" onclick="setCQFilter('won',this)">Closed Won</button>
+        <button class="qpb-toggle" onclick="toggleCQLost(this)" id="cq-lost-btn" style="opacity:0.4">Closed Lost</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="data-table" id="cq-deal-table">
+        <thead id="cq-deal-head"></thead>
+        <tbody id="cq-deal-body"></tbody>
+      </table>
+    </div>
+    <div id="cq-pagination" style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--text-dim);flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="cq-page-info"></span>
+        <select id="cq-page-size" onchange="setCQPageSize(this.value)" style="background:var(--surface-2);color:var(--text-dim);border:1px solid var(--border);font-family:var(--mono);font-size:11px;padding:2px 6px;cursor:pointer">
+          <option value="25">25 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+          <option value="0">All</option>
+        </select>
+      </div>
+      <div id="cq-page-btns" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TAB PAYGO ===================== -->
+<div class="tab-content" id="tab-paygo">
+
+  <!-- Team progress bars -->
+  <div class="grid-1 card" style="margin-bottom:10px">
+    <div class="card-title">Team Progress — Q2 PayGo Target</div>
+    <div id="paygo-team-bars"></div>
+  </div>
+
+  <!-- Rep breakdown + deal list -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Rep Breakdown</div>
+      <table class="data-table" id="paygo-rep-table">
+        <thead><tr>
+          <th>Rep</th><th>Team</th><th>Deals</th><th>% of Team Goal</th><th style="width:90px">Progress</th>
+        </tr></thead>
+        <tbody id="paygo-rep-body"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">Closed PayGo Deals</div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="paygo-deals-table">
+          <thead><tr>
+            <th>Account</th><th>Rep</th><th>Tier</th><th>Product</th><th>Close Date</th>
+          </tr></thead>
+          <tbody id="paygo-deals-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TAB 2: DEAL CHANGES ===================== -->
+<div class="tab-content" id="tab-changes">
+  <div class="dc-filters">
+    <div style="display:flex;gap:0;border:1px solid var(--border)">
+      <button class="qpb-period" id="dc-t1" onclick="setDcWindow(1,this)">Today</button>
+      <button class="qpb-period" id="dc-t3" onclick="setDcWindow(3,this)">3 Day</button>
+      <button class="qpb-period active" id="dc-t7" onclick="setDcWindow(7,this)">7 Day</button>
+    </div>
+    <div style="display:flex;gap:0;border:1px solid var(--border)">
+      <button class="qpb-period active" id="dc-all"  onclick="setDcOwner('all',this)">All</button>
+      <button class="qpb-period"        id="dc-nick" onclick="setDcOwner('nick',this)">Team Nick</button>
+      <button class="qpb-period"        id="dc-ivy"  onclick="setDcOwner('ivy',this)">Team Ivy</button>
+    </div>
+    <button class="qpb-period" id="dc-lost-btn" onclick="toggleDcLost(this)">Show Lost</button>
+    <span class="dc-summary" id="dc-summary"></span>
+  </div>
+  <div id="changes-container"></div>
+</div>
+
+<!-- ===================== TAB 3: PIPELINE HEALTH ===================== -->
+<div class="tab-content" id="tab-pipeline">
+  <div class="grid-2">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">Pipeline Created by Week</div>
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
+          <button class="qpb-period active" id="pw-toggle-count" onclick="setPipelineWeekView('count',this)">Deal Count</button>
+          <button class="qpb-period" id="pw-toggle-amount" onclick="setPipelineWeekView('amount',this)">Pipeline ($)</button>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:280px"><canvas id="chart-pipeline-weekly"></canvas></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">Open Pipeline by Rep</div>
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
+          <button class="qpb-period active" id="op-toggle-amount" onclick="setOpenPipelineView('amount',this)">Pipeline ($)</button>
+          <button class="qpb-period" id="op-toggle-count" onclick="setOpenPipelineView('count',this)">Deal Count</button>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:280px"><canvas id="chart-pipeline-byrep"></canvas></div>
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">Stage Distribution</div>
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
+          <button class="qpb-period active" id="sd-toggle-amount" onclick="setStageDistView('amount',this)">Pipeline ($)</button>
+          <button class="qpb-period" id="sd-toggle-count" onclick="setStageDistView('count',this)">Deal Count</button>
+          <span id="sd-total-count" style="display:none;align-self:center;padding:0 10px;font-size:11px;color:var(--dim);font-family:var(--mono)"></span>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:280px"><canvas id="chart-stage-dist"></canvas></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:2px">
+        <div class="card-title" style="margin-bottom:0">CQ Stage Flow</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span id="vel-e2e-pipeline" style="font-size:11px;font-family:var(--mono);color:var(--dim)"></span>
+          <div style="display:flex;gap:0;border:1px solid var(--border)">
+            <button class="qpb-period vel-toggle active" data-view="cq" onclick="setVelocityView('cq',this)" style="padding:3px 10px;font-size:10px">CQ</button>
+            <button class="qpb-period vel-toggle" data-view="fy" onclick="setVelocityView('fy',this)" style="padding:3px 10px;font-size:10px">FY</button>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--dim);margin:0 0 8px;font-family:var(--mono)">Deals entering each stage · % that advanced forward</div>
+      <div class="chart-wrap" style="height:280px"><canvas id="chart-velocity-pipeline"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TAB 4: AE ACTIVITY ===================== -->
+<div class="tab-content" id="tab-activity">
+  <div class="grid-1 card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div class="card-title" style="margin-bottom:0">Total Activities by Rep per Week</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="qpb-toggle active" id="act-view-all" onclick="setActivityView('all')">All Reps</button>
+        <button class="qpb-toggle" id="act-view-ae" onclick="setActivityView('ae')">By AE</button>
+        <select id="act-ae-select" onchange="setActivityView('ae')"
+          style="display:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-family:var(--mono);font-size:11px;padding:3px 8px;cursor:pointer">
+        </select>
+      </div>
+    </div>
+    <div class="chart-wrap" style="height:300px"><canvas id="chart-activity-stacked"></canvas></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px" id="act-range-btns">
+    <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:0.06em;margin-right:4px">PERIOD</span>
+    <button class="qpb-toggle active" onclick="setActRange('30d',this)">Last 30d</button>
+    <button class="qpb-toggle" onclick="setActRange('cq',this)">CQ</button>
+    <button class="qpb-toggle" onclick="setActRange('all',this)">All Time</button>
+  </div>
+  <div class="grid-2" style="margin-bottom:16px">
+    <div class="card" style="min-width:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin-bottom:0">Outbound Approach Mix</div>
+        <div style="display:flex;gap:6px">
+          <button class="qpb-toggle active" id="mix-view-all" onclick="setMixView('all')">All Reps</button>
+          <button class="qpb-toggle" id="mix-view-ae" onclick="setMixView('ae')">By AE</button>
+          <select id="mix-ae-select" onchange="renderOutboundMix()"
+            style="display:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-family:var(--mono);font-size:11px;padding:3px 8px;cursor:pointer">
+          </select>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:260px"><canvas id="chart-outbound-mix"></canvas></div>
+    </div>
+    <div class="card" style="min-width:0">
+      <div class="card-title">Rep Activity Summary</div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="activity-summary-table">
+          <thead><tr>
+            <th>Rep</th><th>Total Acts</th><th>Avg/wk</th><th>Opps Created</th><th>Acts/Opp</th><th>CVR%</th><th>WoW Trend</th><th style="width:80px">Volume</th>
+          </tr></thead>
+          <tbody id="activity-summary-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ===================== TAB 5: OPP SOURCES ===================== -->
+<div class="tab-content" id="tab-sources">
+  <div class="grid-1 card" style="min-height:220px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px">
+    <span style="font-size:28px">📊</span>
+    <div style="font-family:var(--mono);font-size:13px;color:var(--text-dim);letter-spacing:0.05em;text-align:center">
+      To be populated with marketing attribution data
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TAB 6: USAGE SIGNALS ===================== -->
+<div class="tab-content" id="tab-usage">
+  <!-- Top-level view toggle -->
+  <div style="display:flex;gap:8px;margin-bottom:14px">
+    <button id="usage-view-btn-pago"   class="qpb-toggle active" onclick="setUsageView('pago')">PayGo Accounts</button>
+    <button id="usage-view-btn-target" class="qpb-toggle"        onclick="setUsageView('target')">Target Accounts</button>
+  </div>
+
+  <!-- ── Target Accounts view ── -->
+  <div id="usage-target-view" style="display:none">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+      <div class="sub-tabs" style="margin-bottom:0">
+        <button class="sub-tab active" onclick="showUsageTab('tier1',this)">Tier 1</button>
+        <button class="sub-tab" onclick="showUsageTab('tier2a',this)">Tier 2.A</button>
+        <button class="sub-tab" onclick="showUsageTab('all',this)">Both</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+        <span style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Customers</span>
+        <button id="usage-cust-toggle" onclick="toggleUsageCustomers()" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border-hi);background:var(--bg-card);color:#a78bfa;font-size:11px;cursor:pointer;font-family:inherit;font-weight:600">Show</button>
+      </div>
+    </div>
+    <div class="signal-chips" id="signal-chips"></div>
+    <div class="card" style="overflow-x:auto">
+      <table class="data-table" id="usage-table">
+        <thead id="usage-head"></thead>
+        <tbody id="usage-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── PayGo Accounts view ── -->
+  <div id="usage-pago-view">
+    <div class="card" style="overflow-x:auto">
+      <table class="data-table" id="pago-usage-table">
+        <thead id="pago-usage-head"></thead>
+        <tbody id="pago-usage-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===================== CHART.JS DARK DEFAULTS =====================
+Chart.defaults.color           = '#5a7a96';
+Chart.defaults.borderColor     = '#1a2e4a';
+Chart.defaults.font.family     = "'JetBrains Mono', 'SF Mono', 'Consolas', monospace";
+Chart.defaults.font.size       = 11;
+Chart.defaults.plugins.legend.labels.boxWidth = 10;
+
+// ===================== CONSTANTS =====================
+const REP_COLORS = ["#00c8e8","#00e5a0","#f59e0b","#a78bfa","#f05252","#38bdf8","#fb923c","#e879f9","#4ade80","#94a3b8"];
+const STAGE_ORDER = ["1 - Discovery","2 - Qualification","3 - Workshop","3 - Tech Eval","4 - Proof of Value","5 - Agreement","6 - Submit to Close","Closed Won","Closed Lost"];
+const NICK_TEAM = ["Andrew Miller-McKeever","David Wacker","Ryan Allred","Ryan Reed","Nick Opderbeck"];
+const IVY_TEAM  = ["Charlie Austin","Haroon Anwar","Ryan Lowe","Seyar Karimi","Ivy Gress"];
+const ALL_REPS  = [...NICK_TEAM, ...IVY_TEAM];
+const REP_COLOR_MAP = {};
+ALL_REPS.forEach((n,i) => REP_COLOR_MAP[n] = REP_COLORS[i % REP_COLORS.length]);
+
+let data = {};
+let currentUsageTab = 'tier1';
+
+// ===================== UTILS =====================
+function fmt$(v) {
+  if (v == null || isNaN(v)) return '$0';
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) return '$' + (v / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+  if (abs >= 1_000)     return '$' + (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return '$' + Math.round(v);
+}
+function fmtPct(v) {
+  if (v == null || isNaN(v)) return '0%';
+  return Math.round(v) + '%';
+}
+function pctColor(pct) {
+  if (pct >= 75)  return '#00e5a0';  // green  ≥ 75%
+  if (pct >= 50)  return '#00c8e8';  // cyan   50–74%
+  if (pct >= 25)  return '#f59e0b';  // amber  25–49%
+  return '#f05252';                   // red    < 25%
+}
+function repColor(reps, name) {
+  const idx = reps.indexOf(name);
+  return REP_COLORS[idx % REP_COLORS.length];
+}
+function warnCard(msg) {
+  return `<div class="warn-card">⚠️ ${msg}</div>`;
+}
+function destroyChart(id) {
+  const ex = Chart.getChart(id);
+  if (ex) ex.destroy();
+}
+
+// ===================== TAB SWITCHING =====================
+function showTab(id) {
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById(id).style.display = 'block';
+  document.querySelector(`[data-tab="${id}"]`).classList.add('active');
+  // replaceState updates the URL without triggering a scroll-to-anchor jump
+  history.replaceState(null, '', '#' + id);
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+function showUsageTab(key, btn) {
+  currentUsageTab = key;
+  document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderUsageTable();
+}
+
+// ===================== REFRESH =====================
+async function triggerRefresh() {
+  const btn   = document.getElementById('refresh-btn');
+  const label = document.getElementById('refresh-label');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  label.textContent = 'Pulling data…';
+
+  try {
+    const resp = await fetch('http://localhost:8000/api/refresh-forecast', { method: 'POST' });
+    const result = await resp.json();
+    if (result.ok) {
+      label.textContent = `Done (${result.elapsed}s)`;
+      btn.classList.remove('loading');
+      // Reload the JSON and re-render without full page refresh
+      await loadData();
+      setTimeout(() => { label.textContent = 'Refresh'; btn.disabled = false; }, 2000);
+    } else {
+      label.textContent = 'Error';
+      btn.classList.remove('loading');
+      console.error('Refresh error:', result.error);
+      setTimeout(() => { label.textContent = 'Refresh'; btn.disabled = false; }, 3000);
+    }
+  } catch(e) {
+    label.textContent = 'Error';
+    btn.classList.remove('loading');
+    console.error('Refresh failed:', e);
+    setTimeout(() => { label.textContent = 'Refresh'; btn.disabled = false; }, 3000);
+  }
+}
+
+// ===================== DATA LOAD =====================
+async function loadData() {
+  try {
+    const resp = await fetch('./forecast_data.json?t=' + Date.now());
+    data = await resp.json();
+    document.getElementById('loading').style.display = 'none';
+    const hash = location.hash.replace('#', '');
+    const activeTab = (hash && VALID_TABS.includes(hash)) ? hash : 'tab-snapshot';
+    document.querySelectorAll('.tab-content').forEach(el => {
+      el.style.display = el.id === activeTab ? 'block' : 'none';
+    });
+    document.querySelectorAll('.tab-btn').forEach(el => {
+      el.classList.toggle('active', el.dataset.tab === activeTab);
+    });
+    renderAll();
+  } catch(e) {
+    document.getElementById('loading').textContent = 'Error loading data: ' + e.message;
+  }
+}
+
+function renderAll() {
+  renderHeader();
+  renderQuotaProgressBar();
+  renderSnapshot();
+  renderPayGo();
+  renderChanges();
+  renderPipelineHealth();
+  renderActivity();
+  renderOppSources();
+  renderUsage();
+  loadPAGOUsage(); // default view is PayGo — kick off live SF fetch immediately
+}
+
+// ===================== HEADER =====================
+function renderHeader() {
+  const ts = data?.generated_at ? new Date(data.generated_at).toLocaleString() : '';
+  document.getElementById('header-refresh').innerHTML = ts ? `Last refreshed: <strong>${ts}</strong>` : '';
+
+}
+
+// ===================== QUOTA PROGRESS BAR =====================
+const CQ_TEAM_QUOTAS = { nick: 694167, ivy: 682500, all: 1376667 };
+let currentQuotaPeriod = 'cq';
+let currentQuotaTeam   = 'all';
+
+function setQuotaPeriod(period, btn) {
+  currentQuotaPeriod = period;
+  document.querySelectorAll('.qpb-period').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderQuotaProgressBar();
+}
+
+function setQuotaTeam(team, btn) {
+  currentQuotaTeam = team;
+  // Scope to the team-toggle row only (not CQ filter buttons)
+  btn.closest('div').querySelectorAll('.qpb-toggle').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _cqPage = 0;
+  renderQuotaProgressBar();
+  renderRepTable();
+  renderCQDealList();
+}
+
+function renderQuotaProgressBar() {
+  const byRep    = data?.forecast?.by_rep || {};
+  const fyTQ     = data?.forecast?.fy_team_quotas || { nick: 694167*4, ivy: 682500*4, all: 1376667*4 };
+  const isFY     = currentQuotaPeriod === 'fy';
+  const cwField  = isFY ? 'fy_closed_won' : 'closed_won';
+  const teamNames = currentQuotaTeam === 'nick' ? NICK_TEAM
+                  : currentQuotaTeam === 'ivy'  ? IVY_TEAM
+                  : [...NICK_TEAM, ...IVY_TEAM];
+
+  const cw    = teamNames.reduce((s, n) => s + (byRep[n]?.[cwField] || 0), 0);
+  const quota = isFY ? fyTQ[currentQuotaTeam] : CQ_TEAM_QUOTAS[currentQuotaTeam];
+
+  const pct = quota ? Math.round(cw / quota * 100) : 0;
+  const fillColor = pctColor(pct);
+  const fillWidth = Math.min(pct, 100);
+
+  // Period label
+  const periodLabel = isFY ? '// FY2026 · Jan 1 – Dec 31, 2026' : '// Q2 FY2026 · Apr 1 – Jun 30, 2026';
+  document.getElementById('qpb-period-label').textContent = periodLabel;
+
+  document.getElementById('qpb-cw').textContent    = fmt$(cw);
+  document.getElementById('qpb-quota').textContent = fmt$(quota);
+  document.getElementById('qpb-pct').textContent   = fmtPct(pct);
+  document.getElementById('qpb-pct').style.color   = fillColor;
+  document.getElementById('qpb-fill').style.width  = fillWidth + '%';
+  document.getElementById('qpb-fill').style.background = fillColor;
+  document.getElementById('qpb-fill-label').textContent = fmtPct(pct) + ' attained';
+  document.getElementById('qpb-quota-label').textContent = fmt$(quota) + ' quota';
+
+  // Quarter timeline (static — always Q2 Apr 1 – Jun 30)
+  renderQuarterTimeline();
+}
+
+function renderQuarterTimeline() {
+  const qStart = new Date('2026-04-01T00:00:00');
+  const qEnd   = new Date('2026-06-30T23:59:59');
+  const today  = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const totalMs  = qEnd - qStart;
+  const elapsed  = Math.max(0, Math.min(today - qStart, totalMs));
+  const pct      = (elapsed / totalMs) * 100;
+
+  const daysTotal   = Math.round(totalMs / 86400000);
+  const daysElapsed = Math.round(elapsed / 86400000);
+  const daysLeft    = Math.max(0, daysTotal - daysElapsed);
+
+  document.getElementById('qtr-elapsed-fill').style.width = pct.toFixed(1) + '%';
+  document.getElementById('qtr-today-marker').style.left  = Math.min(pct, 100).toFixed(1) + '%';
+  document.getElementById('qtr-timeline-label').textContent =
+    `Week ${Math.ceil(daysElapsed / 7)} of ${Math.ceil(daysTotal / 7)} · ${daysLeft}d remaining`;
+
+  // Month ticks: May 1, Jun 1
+  const months = [
+    { label: 'Apr', d: new Date('2026-04-01') },
+    { label: 'May', d: new Date('2026-05-01') },
+    { label: 'Jun', d: new Date('2026-06-01') },
+  ];
+  document.getElementById('qtr-month-ticks').innerHTML = months.map(m => {
+    const p = ((m.d - qStart) / totalMs * 100).toFixed(1);
+    const isActive = today >= m.d;
+    return `<span style="position:absolute;left:${p}%;transform:translateX(-50%);font-family:var(--mono);font-size:9px;color:${isActive ? 'var(--text-dim)' : 'var(--border-hi)'};letter-spacing:0.04em">${m.label}</span>`;
+  }).join('');
+}
+
+// ===================== TAB 1: SNAPSHOT =====================
+function renderSnapshot() {
+  const f = data?.forecast;
+  if (!f || f.error) {
+    document.getElementById('snap-metrics').innerHTML = warnCard(f?.error || 'No forecast data');
+    return;
+  }
+
+  const combined = f.combined || {};
+  const metrics = [
+    { label: 'Closed Won', key: 'closed_won', quota: combined.quota },
+    { label: 'Commit + CW', key: 'commit_plus_cw', quota: combined.quota },
+    { label: 'Best Case', key: 'best_case', quota: combined.quota },
+    { label: 'Pipeline', key: 'pipeline', quota: combined.quota },
+  ];
+
+  // Build commit+cw if not explicit
+  if (!combined.commit_plus_cw) combined.commit_plus_cw = (combined.commit||0) + (combined.closed_won||0);
+
+  document.getElementById('snap-metrics').innerHTML = metrics.map(m => {
+    const val = combined[m.key] || 0;
+    const quota = m.quota || 1;
+    const pct = Math.round(val / quota * 100);
+    const col = pctColor(pct);
+    const delta = combined.wow_deltas?.[m.key];
+    let deltaBadge = '';
+    if (delta != null) {
+      const up = delta >= 0;
+      deltaBadge = `<span class="delta-badge ${up?'delta-up':'delta-down'}">${up?'↑':'↓'} ${fmt$(Math.abs(delta))}</span>`;
+    }
+    return `<div class="card">
+      <div class="card-title">${m.label}</div>
+      <div class="metric-value">${fmt$(val)}<span class="metric-pct" style="color:${col}">${fmtPct(pct)}</span></div>
+      <div class="metric-sub">of ${fmt$(quota)} quota</div>
+      ${deltaBadge}
+    </div>`;
+  }).join('');
+
+  renderRepTable();
+  renderCQDealList();
+}
+
+// ── Rep table sort state ──────────────────────────────────────────────────────
+let repSortKey = null;
+let repSortDir = -1; // -1 = desc, 1 = asc
+
+const REP_COLS = [
+  { key: 'name',       label: 'Rep',         numeric: false },
+  { key: 'team',       label: 'Team',        numeric: false },
+  { key: 'quota',      label: 'Quota',       numeric: true  },
+  { key: 'closed_won', label: 'Closed Won',  numeric: true  },
+  { key: 'commit',     label: 'Commit',      numeric: true  },
+  { key: 'best_case',  label: 'Best Case',   numeric: true  },
+  { key: 'pipeline',   label: 'Pipeline',    numeric: true  },
+  { key: 'pct',        label: '% to Quota',  numeric: true  },
+  { key: null,         label: 'Progress',    numeric: false },
+];
+
+function sortRepTable(key) {
+  if (repSortKey === key) { repSortDir *= -1; }
+  else { repSortKey = key; repSortDir = -1; }
+  renderRepTable();
+}
+
+function renderRepTable() {
+  const f = data?.forecast;
+  if (!f) return;
+  const byRepObj = f.by_rep || {};
+
+  // Filter by team
+  const filtered = ALL_REPS.filter(n => {
+    if (!byRepObj[n]) return false;
+    if (currentQuotaTeam === 'nick') return NICK_TEAM.includes(n);
+    if (currentQuotaTeam === 'ivy')  return IVY_TEAM.includes(n);
+    return true;
+  });
+
+  // Enrich with derived fields
+  let rows = filtered.map(n => {
+    const r   = byRepObj[n];
+    const cwc = (r.closed_won||0) + (r.commit||0);
+    const pct = r.quota > 0 ? Math.round(cwc / r.quota * 100) : 0;
+    return { name: n, team: NICK_TEAM.includes(n) ? 'Nick' : 'Ivy', pct, ...r };
+  });
+
+  // Sort
+  if (repSortKey) {
+    rows.sort((a, b) => {
+      const av = a[repSortKey], bv = b[repSortKey];
+      if (typeof av === 'string') return repSortDir * av.localeCompare(bv);
+      return repSortDir * ((av||0) - (bv||0));
+    });
+  } else {
+    // Default: Closed Won desc, then % to Quota desc as tiebreaker
+    rows.sort((a, b) => {
+      const cwDiff = (b.closed_won||0) - (a.closed_won||0);
+      if (cwDiff !== 0) return cwDiff;
+      return (b.pct||0) - (a.pct||0);
+    });
+  }
+
+  // Render thead
+  document.getElementById('rep-table-head').innerHTML = '<tr>' + REP_COLS.map(col => {
+    if (!col.key) return `<th style="width:110px">${col.label}</th>`;
+    const active = repSortKey === col.key;
+    const arrow  = active ? (repSortDir === -1 ? '↓' : '↑') : '↕';
+    return `<th class="sortable-th${active?' sort-active':''}" onclick="sortRepTable('${col.key}')">${col.label} <i class="sort-arrow">${arrow}</i></th>`;
+  }).join('') + '</tr>';
+
+  // Render tbody
+  let lastTeam = null;
+  document.getElementById('rep-table-body').innerHTML = rows.map(r => {
+    const teamBreak = currentQuotaTeam === 'all' && lastTeam && r.team !== lastTeam;
+    lastTeam = r.team;
+    const cwc = (r.closed_won||0) + (r.commit||0);
+    const pct = r.quota > 0 ? Math.round(cwc / r.quota * 100) : 0;
+    const col = pctColor(pct);
+    const bar = Math.min(pct, 100);
+    return `<tr class="${teamBreak ? 'team-divider' : ''}">
+      <td><span style="display:inline-block;width:7px;height:7px;background:${REP_COLOR_MAP[r.name]};margin-right:7px;vertical-align:middle"></span><strong style="color:var(--text-hi)">${r.name}</strong></td>
+      <td>${r.team}</td>
+      <td>${fmt$(r.quota)}</td>
+      <td>${fmt$(r.closed_won)}</td>
+      <td>${fmt$(r.commit)}</td>
+      <td>${fmt$(r.best_case)}</td>
+      <td>${fmt$(r.pipeline)}</td>
+      <td style="font-weight:700;color:${col}">${r.quota > 0 ? fmtPct(pct) : '—'}</td>
+      <td><div class="progress-wrap"><div class="progress-fill" style="width:${bar}%;background:${col}"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Rep table collapse ──────────────────────────────────────────────────────
+let _repTableOpen = true;
+function toggleRepTable() {
+  _repTableOpen = !_repTableOpen;
+  document.getElementById('rep-table-wrap').style.display = _repTableOpen ? '' : 'none';
+  document.getElementById('rep-table-chevron').style.transform = _repTableOpen ? '' : 'rotate(-90deg)';
+}
+
+// ── CQ Deal List ────────────────────────────────────────────────────────────
+// Alias so deal-list sort uses the same stage names as the rest of the app
+const STAGE_ORDER_FULL = STAGE_ORDER;
+let _cqPageSize = 25;
+let _cqFilter   = 'all';
+let _cqShowLost = false;
+let _cqPage     = 0;
+let _cqSortKey = 'amount';   // default primary sort
+let _cqSortDir = -1;          // -1 = desc, 1 = asc
+
+const CQ_COLS = [
+  { key: 'account',    label: 'Account',    align: 'left'  },
+  { key: 'opp_name',   label: 'Opportunity',align: 'left'  },
+  { key: 'owner',      label: 'AE',         align: 'left'  },
+  { key: 'amount',     label: 'Amount',     align: 'right', numeric: true },
+  { key: 'stage',      label: 'Stage',      align: 'left'  },
+  { key: 'category',   label: 'Category',   align: 'left'  },
+  { key: 'close_date', label: 'Close Date', align: 'left'  },
+];
+
+function setCQSort(key) {
+  if (_cqSortKey === key) {
+    _cqSortDir = -_cqSortDir;
+  } else {
+    _cqSortKey = key;
+    _cqSortDir = key === 'amount' || key === 'close_date' ? -1 : 1;
+  }
+  _cqPage = 0;
+  renderCQDealList();
+}
+
+function setCQFilter(f, btn) {
+  _cqFilter = f;
+  _cqPage   = 0;
+  document.querySelectorAll('#cq-filter-btns .qpb-toggle:not(#cq-lost-btn)').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCQDealList();
+}
+
+function toggleCQLost(btn) {
+  _cqShowLost = !_cqShowLost;
+  _cqPage = 0;
+  btn.style.opacity = _cqShowLost ? '1' : '0.4';
+  btn.classList.toggle('active', _cqShowLost);
+  renderCQDealList();
+}
+
+function cqGoTo(p) {
+  _cqPage = p;
+  renderCQDealList();
+}
+
+function setCQPageSize(val) {
+  _cqPageSize = parseInt(val) || 0;
+  _cqPage = 0;
+  renderCQDealList();
+}
+
+function renderCQDealList() {
+  const deals = (data?.forecast?.cq_deals || []);
+
+  // Team filter — mirrors the top team toggle
+  const teamNames = currentQuotaTeam === 'nick' ? NICK_TEAM
+                  : currentQuotaTeam === 'ivy'  ? IVY_TEAM
+                  : null;
+
+  const filtered = deals.filter(d => {
+    if (teamNames && !teamNames.includes(d.owner)) return false;
+    const isLost = d.is_closed && !d.is_won;
+    if (isLost && !_cqShowLost) return false;
+    if (_cqFilter === 'open') return !d.is_closed;
+    if (_cqFilter === 'won')  return d.is_won;
+    return true;
+  });
+
+  // Sort: primary key, secondary = amount desc, tertiary = stage desc
+  filtered.sort((a, b) => {
+    let diff = 0;
+    if (_cqSortKey === 'amount') {
+      diff = ((b.amount || 0) - (a.amount || 0)) * _cqSortDir;
+    } else if (_cqSortKey === 'stage') {
+      diff = (STAGE_ORDER_FULL.indexOf(b.stage) - STAGE_ORDER_FULL.indexOf(a.stage)) * _cqSortDir;
+    } else if (_cqSortKey === 'close_date') {
+      diff = ((a.close_date || '') < (b.close_date || '') ? -1 : 1) * _cqSortDir;
+    } else {
+      const av = (a[_cqSortKey] || '').toString().toLowerCase();
+      const bv = (b[_cqSortKey] || '').toString().toLowerCase();
+      diff = av.localeCompare(bv) * _cqSortDir;
+    }
+    if (diff !== 0) return diff;
+    // Secondary: amount desc
+    const amtDiff = (b.amount || 0) - (a.amount || 0);
+    if (amtDiff !== 0) return amtDiff;
+    // Tertiary: stage desc
+    return STAGE_ORDER_FULL.indexOf(b.stage) - STAGE_ORDER_FULL.indexOf(a.stage);
+  });
+
+  // Render sortable header
+  document.getElementById('cq-deal-head').innerHTML = '<tr>' + CQ_COLS.map(col => {
+    const active = _cqSortKey === col.key;
+    const arrow  = active ? (_cqSortDir === -1 ? '↓' : '↑') : '↕';
+    const align  = col.align === 'right' ? 'text-align:right' : '';
+    return `<th class="sortable-th${active ? ' sort-active' : ''}" style="${align};cursor:pointer" onclick="setCQSort('${col.key}')">${col.label} <i class="sort-arrow">${arrow}</i></th>`;
+  }).join('') + '</tr>';
+
+  const total    = filtered.length;
+  const pageSize = _cqPageSize || total || 1;  // 0 = All
+  const pages    = Math.max(1, Math.ceil(total / pageSize));
+  _cqPage        = Math.max(0, Math.min(_cqPage, pages - 1));
+  const start    = _cqPage * pageSize;
+  const page     = _cqPageSize ? filtered.slice(start, start + pageSize) : filtered;
+
+  document.getElementById('cq-deal-count').textContent = `(${total})`;
+
+  const paginated = _cqPageSize && total > pageSize;
+  document.getElementById('cq-page-info').textContent =
+    paginated ? `${start + 1}–${Math.min(start + pageSize, total)} of ${total}` : `${total} deals`;
+  document.getElementById('cq-pagination').style.display = (paginated || _cqPageSize) ? 'flex' : 'none';
+
+  // Numbered page buttons with prev/next
+  if (paginated) {
+    const WINDOW = 2; // pages either side of current
+    let btns = '';
+    btns += `<button class="qpb-toggle" onclick="cqGoTo(${_cqPage - 1})" ${_cqPage === 0 ? 'disabled' : ''} style="padding:2px 9px">‹</button>`;
+    for (let i = 0; i < pages; i++) {
+      if (i === 0 || i === pages - 1 || Math.abs(i - _cqPage) <= WINDOW) {
+        btns += `<button class="qpb-toggle${i === _cqPage ? ' active' : ''}" onclick="cqGoTo(${i})" style="padding:2px 9px;min-width:30px">${i + 1}</button>`;
+      } else if (Math.abs(i - _cqPage) === WINDOW + 1) {
+        btns += `<span style="padding:2px 4px;color:var(--text-dim)">…</span>`;
+      }
+    }
+    btns += `<button class="qpb-toggle" onclick="cqGoTo(${_cqPage + 1})" ${_cqPage >= pages - 1 ? 'disabled' : ''} style="padding:2px 9px">›</button>`;
+    document.getElementById('cq-page-btns').innerHTML = btns;
+  } else {
+    document.getElementById('cq-page-btns').innerHTML = '';
+  }
+
+  const SF_BASE = 'https://ydc.lightning.force.com/lightning/r/Opportunity/';
+  const catColors = {
+    'Commit':    'var(--green)',
+    'Best Case': 'var(--accent)',
+    'Pipeline':  'var(--text-dim)',
+    'Closed':    '#a78bfa',
+    'Omitted':   'var(--red)',
+  };
+
+  document.getElementById('cq-deal-body').innerHTML = page.length ? page.map(d => {
+    const stageIdx   = STAGE_ORDER_FULL.indexOf(d.stage);
+    const stageColor = d.is_won ? 'var(--green)' : d.is_closed ? 'var(--red)' : stageIdx >= 4 ? 'var(--accent)' : 'var(--text-dim)';
+    const catCol     = catColors[d.category] || 'var(--text-dim)';
+    const parts      = (d.owner || '').split(' ');
+    const ownerShort = parts.length >= 2 ? `${parts[0]} ${parts[parts.length-1][0]}.` : d.owner;
+    return `<tr>
+      <td class="td-truncate" style="color:var(--text-hi);font-weight:600" title="${d.account || ''}">${d.account || '—'}</td>
+      <td><a href="${SF_BASE}${d.opp_id}/view" target="_blank" style="color:var(--text);text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">${d.opp_name}</a></td>
+      <td style="color:var(--text-dim)">${ownerShort}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--text-hi)">${d.amount ? fmt$(d.amount) : '—'}</td>
+      <td><span style="font-family:var(--mono);font-size:10px;color:${stageColor}">${d.stage}</span></td>
+      <td><span style="font-family:var(--mono);font-size:10px;color:${catCol}">${d.category || '—'}</span></td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">${d.close_date || '—'}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" style="color:var(--text-dim);text-align:center;padding:20px">No deals found</td></tr>';
+}
+
+// ===================== TAB PAYGO =====================
+function renderPayGo() {
+  const pg = data?.paygo;
+  if (!pg || pg.error) {
+    document.getElementById('tab-paygo').insertAdjacentHTML('afterbegin', warnCard(pg?.error || 'No PayGo data'));
+    return;
+  }
+
+  const TARGET_TEAM  = pg.target_per_team || 20;
+  const TARGET_TOTAL = pg.target_total    || 40;
+
+  // ── Team progress bars ──────────────────────────────────────────────────────
+  function teamBar(label, count, target) {
+    const pct      = target ? Math.round(count / target * 100) : 0;
+    const fillPct  = Math.min(pct, 100);
+    const barColor = pctColor(pct);
+    const remaining = Math.max(target - count, 0);
+    return `
+      <div style="margin-bottom:18px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">
+          <span style="font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text)">${label}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">${remaining > 0 ? remaining + ' remaining' : '✓ goal met'}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <div style="flex:1;background:var(--border);height:16px;position:relative">
+            <div style="width:${fillPct}%;height:100%;background:${barColor};transition:width 0.5s ease"></div>
+          </div>
+          <span style="font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text-hi);min-width:50px;text-align:right">${count}<span style="font-size:13px;color:var(--text-dim);font-weight:400"> / ${target}</span></span>
+          <span style="font-family:var(--mono);font-size:14px;font-weight:700;min-width:44px;text-align:right;color:${barColor}">${pct}%</span>
+        </div>
+      </div>`;
+  }
+
+  const nickCount = pg.nick_team?.count || 0;
+  const ivyCount  = pg.ivy_team?.count  || 0;
+  const allCount  = pg.combined?.count  || 0;
+
+  document.getElementById('paygo-team-bars').innerHTML =
+    teamBar('All', allCount, TARGET_TOTAL) +
+    teamBar('Team Nick', nickCount, TARGET_TEAM) +
+    teamBar('Team Ivy',  ivyCount,  TARGET_TEAM);
+
+  // ── Rep breakdown table ─────────────────────────────────────────────────────
+  const byRep = pg.by_rep || {};
+  window._paygoRepRows = ALL_REPS
+    .filter(n => byRep[n] != null)
+    .map(n => ({
+      name:  n,
+      team:  NICK_TEAM.includes(n) ? 'Nick' : 'Ivy',
+      count: byRep[n].count || 0,
+    }));
+  window._paygoRepSort    = { key: 'count', dir: -1 };
+  window._paygoDeals      = pg.deals || [];
+  window._paygoDealsSort  = { key: 'close_date', dir: -1 };
+  window._paygoTargetTeam = TARGET_TEAM;
+
+  renderPayGoRepTable();
+  renderPayGoDealsTable();
+}
+
+function sortPayGoRep(key) {
+  const s = window._paygoRepSort;
+  s.dir = s.key === key ? s.dir * -1 : -1;
+  s.key = key;
+  renderPayGoRepTable();
+}
+
+function sortPayGoDeals(key) {
+  const s = window._paygoDealsSort;
+  s.dir = s.key === key ? s.dir * -1 : -1;
+  s.key = key;
+  renderPayGoDealsTable();
+}
+
+function renderPayGoRepTable() {
+  const { key, dir } = window._paygoRepSort;
+  const TARGET_TEAM  = window._paygoTargetTeam || 20;
+  const maxCount     = Math.max(...(window._paygoRepRows || []).map(r => r.count), 1);
+
+  const sorted = [...(window._paygoRepRows || [])].sort((a, b) => {
+    const av = a[key], bv = b[key];
+    if (typeof av === 'string') return dir * av.localeCompare(bv);
+    return dir * ((av || 0) - (bv || 0));
+  });
+
+  const REP_COLS_PG = [
+    { key: 'name',  label: 'Rep' },
+    { key: 'team',  label: 'Team' },
+    { key: 'count', label: 'Deals' },
+    { key: 'pct',   label: '% of Team Goal' },
+    { key: null,    label: 'Progress' },
+  ];
+
+  document.querySelector('#paygo-rep-table thead').innerHTML = '<tr>' + REP_COLS_PG.map(col => {
+    if (!col.key) return `<th style="width:90px">${col.label}</th>`;
+    const active = key === col.key;
+    const arrow  = active ? (dir === -1 ? '↓' : '↑') : '↕';
+    return `<th class="sortable-th${active ? ' sort-active' : ''}" onclick="sortPayGoRep('${col.key}')">${col.label} <i class="sort-arrow">${arrow}</i></th>`;
+  }).join('') + '</tr>';
+
+  document.getElementById('paygo-rep-body').innerHTML = sorted.map(r => {
+    const pctOfTeam = Math.round(r.count / TARGET_TEAM * 100);
+    const barW      = Math.round(r.count / maxCount * 100);
+    const col       = r.count > 0 ? '#00c8e8' : 'var(--text-dim)';
+    return `<tr>
+      <td><span style="display:inline-block;width:7px;height:7px;background:${REP_COLOR_MAP[r.name]};margin-right:7px;vertical-align:middle"></span><strong style="color:var(--text-hi)">${r.name}</strong></td>
+      <td>${r.team}</td>
+      <td style="font-family:var(--mono);font-weight:700;color:${col};font-size:16px">${r.count}</td>
+      <td style="font-family:var(--mono);color:var(--text)">${pctOfTeam}%</td>
+      <td><div class="progress-wrap" style="width:90px"><div class="progress-fill" style="width:${barW}%;background:${col}"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPayGoDealsTable() {
+  const { key, dir } = window._paygoDealsSort;
+  const deals = window._paygoDeals || [];
+
+  if (!deals.length) {
+    document.getElementById('paygo-deals-body').innerHTML =
+      '<tr><td colspan="5" class="empty-state">No PayGo deals found.</td></tr>';
+    return;
+  }
+
+  const DEAL_COLS_PG = [
+    { key: 'account',    label: 'Account' },
+    { key: 'rep',        label: 'Rep' },
+    { key: 'tier',       label: 'Tier' },
+    { key: 'sub',        label: 'Product' },
+    { key: 'close_date', label: 'Close Date' },
+  ];
+
+  document.querySelector('#paygo-deals-table thead').innerHTML = '<tr>' + DEAL_COLS_PG.map(col => {
+    const active = key === col.key;
+    const arrow  = active ? (dir === -1 ? '↓' : '↑') : '↕';
+    return `<th class="sortable-th${active ? ' sort-active' : ''}" onclick="sortPayGoDeals('${col.key}')">${col.label} <i class="sort-arrow">${arrow}</i></th>`;
+  }).join('') + '</tr>';
+
+  const TIER_BADGE = {
+    '1. TARGET ACCOUNT': `<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;background:rgba(0,229,160,0.1);color:#00e5a0;border:1px solid rgba(0,229,160,0.25)">T1</span>`,
+    '2.A':               `<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;background:rgba(0,200,232,0.1);color:var(--accent);border:1px solid rgba(0,200,232,0.25)">T2A</span>`,
+    '3.B':               `<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;background:rgba(71,85,105,0.15);color:var(--text-dim);border:1px solid var(--border)">T3B</span>`,
+  };
+
+  const sorted = [...deals].sort((a, b) => {
+    const av = a[key] ?? '', bv = b[key] ?? '';
+    if (typeof av === 'number') return dir * (av - bv);
+    return dir * String(av).localeCompare(String(bv));
+  });
+
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
+
+  document.getElementById('paygo-deals-body').innerHTML = sorted.map(d => {
+    const isNew = d.close_date && new Date(d.close_date) >= cutoff;
+    const newBadge = isNew ? `<span style="font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 6px;background:rgba(0,229,160,0.15);color:#00e5a0;border:1px solid rgba(0,229,160,0.35);letter-spacing:0.06em;margin-left:7px;vertical-align:middle">NEW</span>` : '';
+    return `<tr>
+    <td class="td-truncate" title="${d.account || ''}"><strong style="color:var(--text-hi)">${d.account || '—'}</strong>${newBadge}</td>
+    <td>${d.rep || '—'}</td>
+    <td>${TIER_BADGE[d.tier] || `<span style="color:var(--text-dim);font-family:var(--mono);font-size:10px">${d.tier || '—'}</span>`}</td>
+    <td style="font-family:var(--mono);font-size:11px;color:var(--text)">${d.sub || d.product || '—'}</td>
+    <td style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">${d.close_date || '—'}</td>
+  </tr>`;
+  }).join('');
+}
+
+// ===================== TAB 2: DEAL CHANGES =====================
+// ── Deal Changes state ────────────────────────────────────────────────────────
+let _dcDays     = 7;
+let _dcOwner    = 'all';
+let _dcShowLost = false;
+
+const DC_PIPELINE_COLS = [
+  '1 - Discovery', '2 - Qualification', '3 - Workshop',
+  '3 - Tech Eval', '4 - Proof of Value', '5 - Agreement', 'Closed Won'
+];
+const DC_SHORT = s => (s || '').replace(/^\d+\s*-\s*/, '');
+
+function setDcWindow(days, btn) {
+  _dcDays = days;
+  document.querySelectorAll('#dc-t1,#dc-t3,#dc-t7').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChanges();
+}
+function setDcOwner(owner, btn) {
+  _dcOwner = owner;
+  document.querySelectorAll('#dc-all,#dc-nick,#dc-ivy').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChanges();
+}
+function toggleDcLost(btn) {
+  _dcShowLost = !_dcShowLost;
+  btn.classList.toggle('active', _dcShowLost);
+  renderChanges();
+}
+
+function renderChanges() {
+  const raw       = data?.deal_changes;
+  const container = document.getElementById('changes-container');
+  if (!raw || raw.error) {
+    container.innerHTML = raw?.error ? warnCard(raw.error) : '<div class="dc-empty">No deal changes data.</div>';
+    return;
+  }
+
+  // 1. Time + owner filter
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - _dcDays);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const filtered = raw.filter(c => {
+    if ((c.changed_at || '') < cutoffStr) return false;
+    if (_dcOwner === 'nick') return NICK_TEAM.includes(c.owner);
+    if (_dcOwner === 'ivy')  return IVY_TEAM.includes(c.owner);
+    return true;
+  });
+
+  // 2. Group by opp only — one card per deal regardless of how many days it moved
+  const groups = new Map();
+  filtered.forEach(c => {
+    const key = c.opp_name;
+    if (!groups.has(key)) groups.set(key, { ...c, _sc: [], _dc: [] });
+    const g = groups.get(key);
+    if (c.field === 'StageName') g._sc.push(c);
+    if (c.field === 'CloseDate') g._dc.push(c);
+    // Keep the most recent date, amount, and best non-null volume fields
+    if ((c.changed_at || '') > (g.changed_at || '')) {
+      g.changed_at    = c.changed_at;
+      g.current_stage = c.current_stage;
+    }
+    if (c.amount)           g.amount           = c.amount;
+    if (c.api_calls_month3) g.api_calls_month3 = c.api_calls_month3;
+    if (c.blended_cpm)      g.blended_cpm      = c.blended_cpm;
+  });
+
+  // 3. Resolve each group → display record
+  const deals = [...groups.values()].map(g => {
+    const amt = g.amount || 0;
+    let moveBadge = '', moveBadgeLabel = '', colStage = g.current_stage || DC_PIPELINE_COLS[0];
+    let fromStage = '', toStage = '', slipDays = 0, jump = 0;
+
+    if (g._sc.length) {
+      const sorted = [...g._sc].sort((a, b) =>
+        STAGE_ORDER.indexOf(a.old_value) - STAGE_ORDER.indexOf(b.old_value));
+      fromStage = sorted[0].old_value;
+      toStage   = sorted[sorted.length - 1].new_value;
+      colStage  = toStage;
+      jump = STAGE_ORDER.indexOf(toStage) - STAGE_ORDER.indexOf(fromStage);
+      if (toStage === 'Closed Won')       { moveBadge = 'won';       moveBadgeLabel = 'WON'; }
+      else if (toStage === 'Closed Lost') { moveBadge = 'lost';      moveBadgeLabel = 'LOST'; }
+      else if (jump < 0) {
+        const n = Math.abs(jump);
+        moveBadge = 'regressed';
+        moveBadgeLabel = `← ${n}`;
+      } else {
+        moveBadge = 'advanced';
+        moveBadgeLabel = `${jump} →`;
+      }
+    }
+
+    // Date slip — always check, even alongside a stage change
+    if (g._dc.length) {
+      const dc = g._dc.reduce((latest, c) =>
+        (new Date(c.new_value) - new Date(c.old_value)) > (new Date(latest.new_value) - new Date(latest.old_value)) ? c : latest
+      );
+      slipDays = Math.round((new Date(dc.new_value) - new Date(dc.old_value)) / 86400000);
+      if (!g._sc.length) {
+        fromStage = dc.old_value; toStage = dc.new_value;
+        colStage  = g.current_stage || DC_PIPELINE_COLS[0];
+      }
+    }
+
+    // Days-in-stage badge
+    const dis = g.days_in_stage;
+    let disBadge = 'dis-normal', disBadgeLabel = dis != null ? `${dis}d` : '—';
+    if (dis != null) {
+      if (dis <= 7)       disBadge = 'dis-fresh';
+      else if (dis <= 30) disBadge = 'dis-normal';
+      else if (dis <= 60) disBadge = 'dis-aging';
+      else                disBadge = 'dis-stale';
+    }
+
+    // Score for within-column sort (move type + slip severity + amount)
+    let score = 0;
+    if (moveBadge === 'won')       score = 1000 + amt / 1000;
+    else if (moveBadge === 'lost') score = 600  + amt / 1000;
+    else if (moveBadge === 'regressed') score = 400 + amt / 1000;
+    else if (moveBadge === 'advanced')  score = 200 + amt / 1000;
+    if (slipDays > 60)  score += 150;
+    else if (slipDays > 14) score += 60;
+    else if (slipDays > 0)  score += 20;
+
+    // Stage movement subtitle
+    let sub = '';
+    if (g._sc.length) sub = `${DC_SHORT(fromStage)} → ${DC_SHORT(toStage)}`;
+
+    // Potential value bar: (api_calls_month3 × blended_cpm / 1000) × 12 = annualised
+    const potVal = (g.api_calls_month3 && g.blended_cpm)
+      ? g.api_calls_month3 * g.blended_cpm / 1000 * 12
+      : null;
+    const potPct = potVal != null ? Math.min(100, (potVal / 100000) * 100) : null;
+
+    return { g, amt, moveBadge, moveBadgeLabel, moveJump: jump, disBadge, disBadgeLabel, slipDays, colStage, sub, score, potPct, potVal };
+  });
+
+  // 4. Filter lost if toggle off
+  const visible = deals.filter(d => _dcShowLost || d.colStage !== 'Closed Lost');
+
+  // 5. Bucket into columns
+  const colMap = new Map();
+  const allCols = [...DC_PIPELINE_COLS, ...(_dcShowLost ? ['Closed Lost'] : [])];
+  allCols.forEach(s => colMap.set(s, []));
+  visible.forEach(d => {
+    const col = allCols.includes(d.colStage) ? d.colStage : 'Closed Won'; // fallback
+    if (colMap.has(col)) colMap.get(col).push(d);
+  });
+  // Sort each column by score desc
+  colMap.forEach(arr => arr.sort((a, b) => b.score - a.score));
+
+  // 6. Summary
+  document.getElementById('dc-summary').textContent =
+    `${visible.length} deal${visible.length !== 1 ? 's' : ''} · ${filtered.length} changes`;
+
+  if (!visible.length) {
+    container.innerHTML = '<div class="dc-empty">No deal changes in this window.</div>';
+    return;
+  }
+
+  // 7. Render lane board
+  const ownerShort = name => {
+    const p = (name || '').trim().split(/\s+/);
+    return p.length > 1 ? `${p[0]} ${p[p.length-1][0]}.` : p[0];
+  };
+
+  const slipHtml = days => {
+    if (!days || days <= 0) return '';
+    const cls = days > 60 ? 'color:var(--red)' : days > 14 ? 'color:var(--amber)' : 'color:#64748b';
+    return `<div class="dc-mini-meta" style="${cls};margin-top:2px">↓ close +${days}d</div>`;
+  };
+
+  const colHtml = allCols.map(stage => {
+    const cards = colMap.get(stage) || [];
+    const isWon  = stage === 'Closed Won';
+    const isLost = stage === 'Closed Lost';
+    const hdrCls = isWon ? 'won-hdr' : isLost ? 'lost-hdr' : '';
+    const cardsHtml = cards.length
+      ? cards.map(({ g, amt, moveBadge, moveBadgeLabel, moveJump, disBadge, disBadgeLabel, slipDays, sub, potPct, potVal }) => {
+          const topBorder = moveBadge ? `m-${moveBadge}` : '';
+          return `
+          <div class="dc-mini ${topBorder}" title="${g.opp_name}"
+               style="cursor:pointer" onclick="openOppModal('${g.opp_id}','${(g.account||g.opp_name).replace(/'/g,"\\'")}')">
+            <div class="dc-mini-top">
+              <div class="dc-mini-name">${g.opp_id
+                ? `<a href="https://ydc.lightning.force.com/lightning/r/Opportunity/${g.opp_id}/view" target="_blank" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;border-bottom:1px solid var(--border-hi)" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='inherit'">${g.account || g.opp_name}</a>`
+                : (g.account || g.opp_name)}</div>
+              <span class="dc-mini-badge ${disBadge}">${disBadgeLabel}</span>
+            </div>
+            ${amt > 0 ? `<div class="dc-mini-amt">${fmt$(amt)}</div>` : ''}
+            ${sub ? `<div class="dc-mini-meta" style="margin-top:2px">${sub}</div>` : ''}
+            ${slipHtml(slipDays)}
+            <div class="dc-mini-meta" style="margin-top:3px;display:flex;justify-content:space-between;align-items:center">
+              <span>${ownerShort(g.owner)} · ${(g.changed_at||'').slice(5)}</span>
+              ${moveBadge ? `<span class="dc-mini-badge ${moveBadge}${(moveBadge==='advanced'||moveBadge==='regressed')&&Math.abs(moveJump||0)>=2?' multi':''}" style="font-size:7px">${moveBadgeLabel}</span>` : ''}
+            </div>
+            <div style="margin-top:6px;display:flex;align-items:center;gap:4px" title="${potVal != null ? fmt$(potVal) + ' annualised potential' : 'No volume data'}">
+              <span style="font-family:var(--mono);font-size:8px;color:${potPct != null ? 'var(--green)' : 'var(--border-hi)'};flex-shrink:0">$</span>
+              <div style="flex:1;height:3px;background:var(--border);position:relative">
+                ${potPct != null
+                  ? `<div style="height:100%;width:${potPct.toFixed(1)}%;background:var(--green);transition:width 0.4s"></div>`
+                  : `<div style="height:100%;width:100%;background:repeating-linear-gradient(90deg,var(--border) 0,var(--border) 4px,transparent 4px,transparent 8px)"></div>`}
+              </div>
+            </div>
+          </div>`;
+        }).join('')
+      : `<div class="dc-col-empty">—</div>`;
+
+    return `
+      <div class="dc-col">
+        <div class="dc-col-hdr ${hdrCls}">
+          <span>${DC_SHORT(stage)}</span>
+          ${cards.length ? `<span class="dc-col-count">${cards.length}</span>` : ''}
+        </div>
+        ${cardsHtml}
+      </div>`;
+  }).join('');
+
+  container.innerHTML = `<div class="dc-lanes">${colHtml}</div>`;
+}
+
+// ===================== TAB 3: PIPELINE HEALTH =====================
+function renderPipelineHealth() {
+  const ph = data?.pipeline_health;
+  if (!ph || ph.error) {
+    document.getElementById('tab-pipeline').insertAdjacentHTML('afterbegin', warnCard(ph?.error || 'No pipeline health data'));
+    return;
+  }
+
+  // Chart 1: Pipeline by week
+  window._pipelineWeekData      = ph.pipeline_by_week       || {};
+  window._pipelineWeekCountData = ph.pipeline_by_week_count || {};
+  window._pipelineWeekView      = 'count';
+  renderPipelineWeekChart();
+
+  // Chart 2: Open pipeline by rep
+  window._openPipelineData = ph.by_rep || {};
+  window._openPipelineView = 'count';
+  document.getElementById('op-toggle-count').classList.add('active');
+  document.getElementById('op-toggle-amount').classList.remove('active');
+  renderOpenPipelineChart();
+
+  // Chart 3: Stage distribution — rendered via standalone function with toggle
+  window._stageDistData = ph.stage_distribution || {};
+  window._stageDistView = 'count';
+  document.getElementById('sd-toggle-count').classList.add('active');
+  document.getElementById('sd-toggle-amount').classList.remove('active');
+  renderStageDistChart();
+
+  // Chart 4: Stage velocity — CQ and FY datasets
+  window._velocityDataCQ = ph.stage_velocity    || {};
+  window._velocityDataFY = ph.stage_velocity_fy || {};
+  window._velocityView   = 'cq';
+  renderVelocityChart('chart-velocity-pipeline', window._velocityDataCQ);
+
+}
+
+function setPipelineWeekView(view, btn) {
+  window._pipelineWeekView = view;
+  document.querySelectorAll('#pw-toggle-count, #pw-toggle-amount').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderPipelineWeekChart();
+}
+
+function renderPipelineWeekChart() {
+  const isAmount = window._pipelineWeekView === 'amount';
+  const dataObj  = isAmount ? (window._pipelineWeekData || {}) : (window._pipelineWeekCountData || {});
+  const amtObj   = window._pipelineWeekData || {};
+
+  const weekLabels = Object.keys(dataObj);
+  const reps = [...new Set(weekLabels.flatMap(w => Object.keys(dataObj[w] || {})))].filter(r => ALL_REPS.includes(r));
+
+  destroyChart('chart-pipeline-weekly');
+  new Chart(document.getElementById('chart-pipeline-weekly'), {
+    type: 'bar',
+    data: {
+      labels: weekLabels,
+      datasets: reps.map(rep => ({
+        label: rep,
+        data: weekLabels.map(w => dataObj[w]?.[rep] || 0),
+        backgroundColor: REP_COLOR_MAP[rep] || '#00c8e8',
+        stack: 'stack',
+      }))
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const rep  = ctx.dataset.label;
+              const week = weekLabels[ctx.dataIndex];
+              const cnt  = window._pipelineWeekCountData?.[week]?.[rep] || 0;
+              if (isAmount) {
+                return ` ${rep}: ${fmt$(ctx.raw)}  (${cnt} deal${cnt !== 1 ? 's' : ''})`;
+              } else {
+                const amt = amtObj[week]?.[rep] || 0;
+                return ` ${rep}: ${ctx.raw} deal${ctx.raw !== 1 ? 's' : ''}  (${fmt$(amt)})`;
+              }
+            },
+            afterBody: ctx => {
+              const week = weekLabels[ctx[0]?.dataIndex];
+              if (!week) return '';
+              const totalAmt   = reps.reduce((s, r) => s + (amtObj[week]?.[r] || 0), 0);
+              const totalCount = reps.reduce((s, r) => s + ((window._pipelineWeekCountData?.[week]?.[r]) || 0), 0);
+              return isAmount
+                ? `\nTeam total: ${fmt$(totalAmt)}  ·  ${totalCount} deals created`
+                : `\nTeam total: ${totalCount} deals  ·  ${fmt$(totalAmt)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true, ticks: {} },
+        y: { stacked: true, ticks: { callback: v => isAmount ? '$' + Math.round(v / 1000) + 'k' : v } }
+      }
+    }
+  });
+}
+
+function setOpenPipelineView(view, btn) {
+  window._openPipelineView = view;
+  document.querySelectorAll('#op-toggle-amount, #op-toggle-count').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderOpenPipelineChart();
+}
+
+function renderOpenPipelineChart() {
+  const byRepObj = window._openPipelineData || {};
+  const view     = window._openPipelineView || 'amount';
+  const isAmount = view === 'amount';
+  const field    = isAmount ? 'open_pipeline' : 'open_pipeline_count';
+
+  const arr = Object.entries(byRepObj)
+    .map(([name, vals]) => ({ name, ...vals }))
+    .sort((a, b) => (b[field] || 0) - (a[field] || 0));
+
+  destroyChart('chart-pipeline-byrep');
+  new Chart(document.getElementById('chart-pipeline-byrep'), {
+    type: 'bar',
+    data: {
+      labels: arr.map(r => r.name),
+      datasets: [{
+        label: isAmount ? 'Open Pipeline ($)' : 'Open Deals',
+        data: arr.map(r => r[field] || 0),
+        backgroundColor: arr.map(r => REP_COLOR_MAP[r.name] || '#00c8e8'),
+        borderRadius: 0,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const r = arr[ctx.dataIndex];
+              return isAmount
+                ? `Pipeline: ${fmt$(r.open_pipeline)}  ·  ${r.open_pipeline_count} deals`
+                : `${r.open_pipeline_count} deals  ·  ${fmt$(r.open_pipeline)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { callback: v => isAmount ? '$' + Math.round(v / 1000) + 'k' : v } },
+        y: { ticks: {} }
+      }
+    }
+  });
+}
+
+function setStageDistView(view, btn) {
+  window._stageDistView = view;
+  document.querySelectorAll('#sd-toggle-amount, #sd-toggle-count').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderStageDistChart();
+}
+
+function renderStageDistChart() {
+  const sdObj = window._stageDistData || {};
+  const view  = window._stageDistView || 'amount';
+
+  const arr = STAGE_ORDER
+    .filter(s => sdObj[s])
+    .map(s => ({ stage: s, ...sdObj[s] }));
+
+  const isAmount  = view === 'amount';
+  const values    = arr.map(s => isAmount ? (s.amount || 0) : (s.count || 0));
+  const counts    = arr.map(s => s.count || 0);
+  const totalCount = counts.reduce((a, b) => a + b, 0);
+  const maxVal    = Math.max(...values, 1);
+
+  // Update toggle label
+  const totalEl = document.getElementById('sd-total-count');
+  if (!isAmount) {
+    totalEl.textContent = `(${totalCount} total)`;
+    totalEl.style.display = 'flex';
+  } else {
+    totalEl.style.display = 'none';
+  }
+
+  // Data-labels plugin (inline, no CDN needed)
+  const dataLabelsPlugin = {
+    id: 'sdDataLabels',
+    afterDatasetsDraw(chart) {
+      const { ctx, data, scales: { x } } = chart;
+      ctx.save();
+      chart.getDatasetMeta(0).data.forEach((bar, i) => {
+        const count = counts[i];
+        if (!count) return;
+        const label = isAmount ? `${count}` : `${count}`;
+        ctx.font        = '600 11px var(--mono, monospace)';
+        ctx.fillStyle   = 'rgba(255,255,255,0.75)';
+        ctx.textAlign   = 'left';
+        ctx.textBaseline = 'middle';
+        const xPos = bar.x + 6;
+        ctx.fillText(label, xPos, bar.y);
+      });
+      ctx.restore();
+    }
+  };
+
+  destroyChart('chart-stage-dist');
+  new Chart(document.getElementById('chart-stage-dist'), {
+    type: 'bar',
+    plugins: [dataLabelsPlugin],
+    data: {
+      labels: arr.map(s => s.stage),
+      datasets: [{
+        label: isAmount ? 'Pipeline ($)' : 'Deal Count',
+        data: values,
+        backgroundColor: arr.map((_, i) => {
+          const alpha = 0.5 + 0.5 * (values[i] / maxVal);
+          return isAmount ? `rgba(0,200,232,${alpha.toFixed(2)})` : `rgba(0,229,160,${alpha.toFixed(2)})`;
+        }),
+        borderColor: isAmount ? '#00c8e8' : '#00e5a0',
+        borderWidth: 1,
+        borderRadius: 0,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { right: 40 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => isAmount
+              ? `Pipeline: ${fmt$(values[ctx.dataIndex])}  ·  ${counts[ctx.dataIndex]} deals`
+              : `${values[ctx.dataIndex]} deals  ·  ${fmt$(arr[ctx.dataIndex].amount || 0)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { callback: v => isAmount ? '$' + Math.round(v / 1000) + 'k' : v }
+        },
+        y: { ticks: {} }
+      }
+    }
+  });
+}
+
+function setVelocityView(view, btn) {
+  window._velocityView = view;
+  document.querySelectorAll('.vel-toggle').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll(`.vel-toggle[data-view="${view}"]`).forEach(b => b.classList.add('active'));
+  const vData = view === 'fy' ? window._velocityDataFY : window._velocityDataCQ;
+  renderVelocityChart('chart-velocity-pipeline', vData);
+  renderVelocityChart('chart-velocity-activity', vData);
+}
+
+function renderVelocityChart(canvasId, velocityData) {
+  destroyChart(canvasId);
+
+  // Pipeline stages in order (exclude admin/terminal stages from main list)
+  const EXCLUDE_FROM_VELOCITY = new Set(['6 - Submit to Close', 'Closed Won', 'Closed Lost']);
+  const pipelineStages = STAGE_ORDER.filter(s => velocityData[s] && !EXCLUDE_FROM_VELOCITY.has(s));
+  const terminalStages = ['Closed Won', 'Closed Lost'].filter(s => velocityData[s]);
+  const allStages      = [...pipelineStages, ...terminalStages];
+  if (!allStages.length) return;
+
+  // E2E close rate: Closed Won / deals that entered Discovery (first stage)
+  const entryStage   = '1 - Discovery';
+  const entryCount   = velocityData[entryStage]?.reached || 0;
+  const closedWon    = velocityData['Closed Won']?.reached || 0;
+  const e2ePct    = entryCount > 0 ? ((closedWon / entryCount) * 100).toFixed(0) : '—';
+  const e2eHtml   = `E2E close rate: <span style="color:var(--accent);font-weight:700">${e2ePct}%</span> &nbsp;(${closedWon} won / ${entryCount} entered)`;
+  // Update both E2E spans so they stay in sync when the toggle fires both charts
+  ['vel-e2e-pipeline', 'vel-e2e-activity'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = e2eHtml;
+  });
+
+  // Short display labels (strip leading number + dash)
+  const shortLabel = s => s.replace(/^\d+\s*-\s*/, '');
+
+  const allData = allStages.map(s => ({ stage: s, label: shortLabel(s), ...velocityData[s] }));
+  const counts  = allData.map(s => s.reached || 0);
+  const cvrs    = allData.map(s => s.cvr_pct || 0);
+
+  // Color scheme: terminal stages get fixed colors; pipeline stages colored by CVR
+  const barColor = allData.map((s, i) => {
+    if (s.stage === 'Closed Won')  return '#00e5a0';
+    if (s.stage === 'Closed Lost') return '#f05252';
+    return cvrs[i] >= 50 ? '#00c8e8' : cvrs[i] >= 25 ? '#f59e0b' : '#f05252';
+  });
+
+  // Inline data-labels plugin — draws "N entered / X% →" above each bar
+  const labelPlugin = {
+    id: 'velocityLabels',
+    afterDatasetsDraw(chart) {
+      const { ctx, scales: { y } } = chart;
+      const meta = chart.getDatasetMeta(0);
+      ctx.save();
+      allData.forEach((s, i) => {
+        const bar = meta.data[i];
+        if (!bar) return;
+        const isTerminal = s.stage === 'Closed Won' || s.stage === 'Closed Lost';
+        const entered = counts[i];
+        const topY = bar.y - 6;
+
+        // Primary label: "N entered"
+        ctx.textAlign   = 'center';
+        ctx.font        = '600 10px "JetBrains Mono", monospace';
+        ctx.fillStyle   = 'rgba(200,220,240,0.85)';
+        ctx.fillText(`${entered} entered`, bar.x, topY - (isTerminal ? 0 : 14));
+
+        if (!isTerminal) {
+          // CVR label: "84% →" or "12% →" colored by rate
+          const pct = s.cvr_pct;
+          ctx.font      = '700 11px "JetBrains Mono", monospace';
+          ctx.fillStyle = barColor[i];
+          ctx.fillText(`${pct}% →`, bar.x, topY);
+        }
+      });
+      ctx.restore();
+    }
+  };
+
+  new Chart(document.getElementById(canvasId), {
+    type: 'bar',
+    plugins: [labelPlugin],
+    data: {
+      labels: allData.map(s => s.label),
+      datasets: [{
+        label: 'Deals Entering Stage',
+        data: counts,
+        backgroundColor: barColor.map(c => c + '28'),
+        borderColor: barColor,
+        borderWidth: 2,
+        borderRadius: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 36 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: ctx => allData[ctx[0].dataIndex].stage,
+            label: ctx => {
+              const s = allData[ctx.dataIndex];
+              const isTerminal = s.stage === 'Closed Won' || s.stage === 'Closed Lost';
+              if (isTerminal) return `${s.reached} deals reached this outcome`;
+              return `${s.reached} deals entered this stage`;
+            },
+            afterLabel: ctx => {
+              const s = allData[ctx.dataIndex];
+              const isTerminal = s.stage === 'Closed Won' || s.stage === 'Closed Lost';
+              if (isTerminal) return '';
+              return `${s.advanced} advanced · ${s.cvr_pct}% CVR`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { stepSize: 5, font: { size: 11 } },
+          grid: { color: '#1a2e4a' }
+        },
+        x: {
+          ticks: { font: { size: 10 }, maxRotation: 30 },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+
+// ===================== TAB 4: AE ACTIVITY =====================
+const EXCLUDE_FROM_STACKED = ['Joe Hindle', 'Ivy Gress', 'Nick Opderbeck'];
+const EXCLUDE_FROM_TREND = ['Haroon Anwar', 'Joe Hindle', 'Ivy Gress', 'Nick Opderbeck'];
+
+let _actView = 'all'; // 'all' | 'ae'
+
+function setActivityView(view) {
+  _actView = view;
+  document.getElementById('act-view-all').classList.toggle('active', view === 'all');
+  document.getElementById('act-view-ae').classList.toggle('active', view === 'ae');
+  document.getElementById('act-ae-select').style.display = view === 'ae' ? '' : 'none';
+  renderStackedActivityChart();
+}
+
+function renderStackedActivityChart() {
+  const byRepObj = window._actByRep    || {};
+  const repNames = window._actRepNames || [];
+  const { idxs, weeks } = getActWeekSlice();
+
+  destroyChart('chart-activity-stacked');
+
+  let datasets;
+  let stacked = true;
+
+  if (_actView === 'ae') {
+    const sel  = document.getElementById('act-ae-select');
+    const name = sel?.value || repNames[0];
+    const color = REP_COLOR_MAP[name] || '#6366f1';
+    datasets = [{
+      label: name,
+      data: idxs.map(i => (byRepObj[name] || [])[i] || 0),
+      backgroundColor: color,
+      stack: 'stack',
+    }];
+  } else {
+    datasets = repNames.map(name => ({
+      label: name,
+      data: idxs.map(i => (byRepObj[name] || [])[i] || 0),
+      backgroundColor: REP_COLOR_MAP[name] || '#6366f1',
+      stack: 'stack',
+    }));
+  }
+
+  new Chart(document.getElementById('chart-activity-stacked'), {
+    type: 'bar',
+    data: { labels: weeks, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 10 } },
+      },
+      scales: {
+        x: { stacked, ticks: {} },
+        y: {
+          stacked,
+          ticks: {},
+          afterDataLimits: scale => { scale.max = Math.ceil(scale.max * 1.05); }
+        }
+      }
+    },
+    plugins: []
+  });
+}
+
+// ── Activity time-range filter ───────────────────────────────────────────────
+let _actRange = '30d';
+
+function setActRange(range, btn) {
+  _actRange = range;
+  document.querySelectorAll('#act-range-btns .qpb-toggle').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderStackedActivityChart();
+  renderOutboundMix();
+  renderActivitySummaryTable();
+}
+
+// Returns {weekIdxs, weeks} for the current range
+function getActWeekSlice() {
+  const allWeeks = window._actWeeks || [];
+  const n = allWeeks.length;
+  if (!n) return { idxs: [], weeks: [] };
+  let start = 0;
+  if (_actRange === '30d') start = Math.max(0, n - 4);
+  // 'cq' and 'all' → full range
+  const idxs  = Array.from({ length: n - start }, (_, i) => start + i);
+  const weeks  = idxs.map(i => allWeeks[i]);
+  return { idxs, weeks };
+}
+
+let _mixView = 'all';
+
+function setMixView(view) {
+  _mixView = view;
+  document.getElementById('mix-view-all').classList.toggle('active', view === 'all');
+  document.getElementById('mix-view-ae').classList.toggle('active', view === 'ae');
+  document.getElementById('mix-ae-select').style.display = view === 'ae' ? '' : 'none';
+  renderOutboundMix();
+}
+
+function renderOutboundMix() {
+  const act = data?.activity;
+  if (!act) return;
+
+  const { idxs } = getActWeekSlice();
+  const byTypeByWeek = act.by_type_by_week || [];
+  const fullRange    = !byTypeByWeek.length || idxs.length === (window._actWeeks || []).length;
+
+  // Aggregate type counts for the selected week slice
+  function aggregateByType(weekIdxs, perRepName) {
+    if (perRepName) {
+      // For By AE view, we don't have per-rep-per-week breakdown, fall back to flat totals
+      return act.by_type_by_rep?.[perRepName] || {};
+    }
+    const agg = {};
+    weekIdxs.forEach(i => {
+      const w = byTypeByWeek[i] || {};
+      Object.entries(w).forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; });
+    });
+    return agg;
+  }
+
+  let byType;
+  if (_mixView === 'ae') {
+    const sel  = document.getElementById('mix-ae-select');
+    const name = sel?.value;
+    byType = aggregateByType(idxs, name);
+  } else {
+    byType = aggregateByType(idxs, null);
+  }
+
+  const TYPE_COLORS = {
+    'Call (Gong)':   '#00c8e8',
+    'Call':          '#38bdf8',
+    'Email (Apollo)':'#f59e0b',
+    'Email':         '#fb923c',
+    'LinkedIn':      '#6366f1',
+    'Other':         '#94a3b8',
+  };
+
+  // Sort by count desc
+  const entries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+  const labels  = entries.map(([k]) => k);
+  const values  = entries.map(([, v]) => v);
+  const colors  = labels.map(l => TYPE_COLORS[l] || '#a78bfa');
+  const total   = values.reduce((s, v) => s + v, 0);
+
+  destroyChart('chart-outbound-mix');
+  new Chart(document.getElementById('chart-outbound-mix'), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, hoverOffset: 6 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '60%',
+      plugins: {
+        legend: { position: 'right', labels: { boxWidth: 12, font: { family: "'JetBrains Mono', monospace", size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const pct = total ? ((ctx.raw / total) * 100).toFixed(1) : 0;
+              return ` ${ctx.raw.toLocaleString()} (${pct}%)`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [{
+      id: 'centerLabel',
+      afterDraw(chart) {
+        const { ctx, chartArea } = chart;
+        const cx = (chartArea.left + chartArea.right) / 2;
+        const cy = (chartArea.top + chartArea.bottom) / 2;
+        ctx.save();
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#f1f5f9';
+        ctx.font = `700 20px "JetBrains Mono", monospace`;
+        ctx.fillText(total.toLocaleString(), cx, cy - 8);
+        ctx.fillStyle = '#64748b';
+        ctx.font = `10px "JetBrains Mono", monospace`;
+        ctx.fillText('activities', cx, cy + 10);
+        ctx.restore();
+      }
+    }]
+  });
+}
+
+function renderActivity() {
+  const act = data?.activity;
+  if (!act || act.error) {
+    document.getElementById('tab-activity').insertAdjacentHTML('afterbegin', warnCard(act?.error || 'No activity data'));
+    return;
+  }
+
+  const weeks = act.weeks || [];
+  // by_rep is {name: [val, val, ...]} indexed by week position
+  const byRepObj = act.by_rep || {};
+  const oppsObj  = act.opps_by_rep_by_week || {};
+
+  // Build rep arrays for charts
+  const stackedRepNames = ALL_REPS.filter(n => !EXCLUDE_FROM_STACKED.includes(n) && byRepObj[n]);
+
+  // Populate AE dropdowns (once, using reps present in data)
+  const aeSelect = document.getElementById('act-ae-select');
+  if (aeSelect && !aeSelect.dataset.populated) {
+    aeSelect.innerHTML = stackedRepNames.map(n =>
+      `<option value="${n}">${n}</option>`
+    ).join('');
+    aeSelect.dataset.populated = '1';
+  }
+  const mixSelect = document.getElementById('mix-ae-select');
+  if (mixSelect && !mixSelect.dataset.populated) {
+    mixSelect.innerHTML = stackedRepNames.map(n =>
+      `<option value="${n}">${n}</option>`
+    ).join('');
+    mixSelect.dataset.populated = '1';
+  }
+
+  // Chart 1: rendered via standalone function (respects toggle)
+  window._actWeeks     = weeks;
+  window._actByRep     = byRepObj;
+  window._actRepNames  = stackedRepNames;
+  renderStackedActivityChart();
+  renderOutboundMix();
+
+  renderActivitySummaryTable();
+}
+
+function renderActivitySummaryTable() {
+  const act = data?.activity;
+  if (!act) return;
+  const byRepObj = window._actByRep    || {};
+  const oppsObj  = act.opps_by_rep_by_week || {};
+  const { idxs } = getActWeekSlice();
+
+  const summaryRepNames = ALL_REPS.filter(n => !EXCLUDE_FROM_STACKED.includes(n) && byRepObj[n]);
+  const totals   = summaryRepNames.map(n => idxs.reduce((s, i) => s + ((byRepObj[n] || [])[i] || 0), 0));
+  const maxTotal = Math.max(...totals, 1);
+
+  const rows = summaryRepNames.map((name, ri) => {
+    const vals  = byRepObj[name] || [];
+    const oVals = oppsObj[name]  || [];
+    const total = idxs.reduce((s, i) => s + (vals[i] || 0), 0);
+    const opps  = idxs.reduce((s, i) => s + (oVals[i] || 0), 0);
+    const nWeeks = idxs.length || 1;
+    const avgWk = Math.round(total / nWeeks);
+    const actsPerOpp = opps ? Math.round(total / opps) : '—';
+    const cvr = total ? (opps / total * 100).toFixed(2) : '0.00';
+    const cvrNum = parseFloat(cvr);
+    const cvrColor = cvrNum >= 1 ? '#16a34a' : cvrNum >= 0.5 ? '#d97706' : '#dc2626';
+
+    // WoW trend: skip trailing zero weeks (current week may be in-progress / unpulled)
+    // Find last two weeks in the slice that have data across the whole team
+    const allRepsVals = summaryRepNames.map(n => byRepObj[n] || []);
+    const teamTotalByIdx = idxs.map(i => allRepsVals.reduce((s, v) => s + (v[i] || 0), 0));
+    // Walk backwards to find the last two non-zero week positions
+    const nonZeroIdxs = idxs.filter((_, pos) => teamTotalByIdx[pos] > 0);
+    const lastIdx  = nonZeroIdxs[nonZeroIdxs.length - 1] ?? -1;
+    const priorIdx = nonZeroIdxs[nonZeroIdxs.length - 2] ?? -1;
+    const lastWk   = lastIdx  >= 0 ? (vals[lastIdx]  || 0) : 0;
+    const priorWk  = priorIdx >= 0 ? (vals[priorIdx] || 0) : 0;
+    let trend = '→', trendColor = '#64748b';
+    if (priorWk > 0) {
+      const chg = Math.round((lastWk - priorWk) / priorWk * 100);
+      if (chg > 5)       { trend = `↑ ${chg}%`;           trendColor = '#16a34a'; }
+      else if (chg < -5) { trend = `↓ ${Math.abs(chg)}%`; trendColor = '#dc2626'; }
+    }
+
+    const barPct = Math.round(totals[ri] / maxTotal * 100);
+    const col = REP_COLOR_MAP[name] || '#6366f1';
+    const parts = name.split(' ');
+    const shortName = parts.length >= 2 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : name;
+    return `<tr>
+      <td title="${name}" style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:6px;vertical-align:middle"></span>${shortName}</td>
+      <td>${total.toLocaleString()}</td>
+      <td>${avgWk.toLocaleString()}</td>
+      <td>${opps}</td>
+      <td>${actsPerOpp}</td>
+      <td style="color:${cvrColor};font-weight:700">${cvr}%</td>
+      <td style="color:${trendColor};font-weight:600">${trend}</td>
+      <td><div class="vol-bar-wrap"><div class="vol-bar-fill" style="width:${barPct}%;background:${col}"></div></div></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('activity-summary-body').innerHTML = rows;
+}
+
+// ===================== TAB 5: OPP SOURCES =====================
+function renderOppSources() {
+  // Tab replaced with placeholder — nothing to render
+}
+
+function renderGong() {
+  const gong = data?.gong_calls;
+  const container = document.getElementById('gong-container');
+
+  if (!gong || gong.error) {
+    container.innerHTML = warnCard(gong?.error || 'Gong data not available');
+    return;
+  }
+  if (!gong.length) {
+    container.innerHTML = '<div class="empty-state">No Gong calls this week.</div>';
+    return;
+  }
+
+  const sorted = [...gong].sort((a,b) => new Date(b.date) - new Date(a.date));
+  const byRep = {};
+  sorted.forEach(c => {
+    const repKey = c.rep || 'Unknown';
+    if (!byRep[repKey]) byRep[repKey] = [];
+    byRep[repKey].push(c);
+  });
+  // Sort: known reps first, 'Unknown' last
+  const repEntries = Object.entries(byRep).sort(([a],[b]) => {
+    if (a === 'Unknown') return 1;
+    if (b === 'Unknown') return -1;
+    return a.localeCompare(b);
+  });
+
+  let html = '<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Date</th><th>Account</th><th>Title</th><th>Duration</th><th>Rep</th></tr></thead><tbody>';
+  repEntries.forEach(([rep, calls]) => {
+    const totalMins = calls.reduce((s,c) => s + (c.duration_min||0), 0);
+    html += `<tr class="rep-group-header"><td colspan="5" style="padding:8px 12px;font-size:12px;color:#64748b">${rep} — ${calls.length} call${calls.length!==1?'s':''}, ${Math.round(totalMins)} min total</td></tr>`;
+    calls.forEach(c => {
+      html += `<tr>
+        <td>${c.date||''}</td>
+        <td>${c.account||''}</td>
+        <td>${c.url ? `<a href="${c.url}" target="_blank">${c.title||'View Call'}</a>` : (c.title||'')}</td>
+        <td>${c.duration_min ? Math.round(c.duration_min)+' min' : ''}</td>
+        <td>${c.rep||'—'}</td>
+      </tr>`;
+    });
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+// ===================== TAB 6: USAGE SIGNALS =====================
+function renderUsage() {
+  const us = data?.usage_signals;
+  if (!us || us.error) {
+    document.getElementById('signal-chips').innerHTML = warnCard(us?.error || 'No usage signal data');
+    return;
+  }
+  renderUsageTable();
+}
+
+// ── Usage view toggle (Target Accounts / PAGO Accounts) ──────────────────────
+let _usageView = 'pago';
+
+function setUsageView(view) {
+  _usageView = view;
+  document.getElementById('usage-target-view').style.display = view === 'target' ? '' : 'none';
+  document.getElementById('usage-pago-view').style.display   = view === 'pago'   ? '' : 'none';
+  document.getElementById('usage-view-btn-target').classList.toggle('active', view === 'target');
+  document.getElementById('usage-view-btn-pago').classList.toggle('active',   view === 'pago');
+  if (view === 'pago') loadPAGOUsage();
+}
+
+// ── PayGo usage health table ──────────────────────────────────────────────────
+const PAGO_UPSIDE_DEFAULT = 2_000_000;
+
+let _pagoUsage     = {};   // accountId → 30d calls (fetched live)
+let _pagoSortKey   = 'usage_30d';
+let _pagoSortDir   = -1;   // highest usage first
+let _pagoLoaded    = false;
+
+const PAGO_COLS = [
+  { key: 'account',    label: 'Account'                },
+  { key: 'close_date', label: 'Closed'                 },
+  { key: 'usage_30d',  label: '30d Usage vs. Targets'  },
+];
+
+function sortPAGOTable(key) {
+  if (_pagoSortKey === key) { _pagoSortDir = -_pagoSortDir; }
+  else { _pagoSortKey = key; _pagoSortDir = key === 'account' ? 1 : -1; }
+  renderPAGOTable();
+}
+
+function fmtCalls(v) {
+  if (v == null || v === 0) return '0';
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+  if (v >= 1_000)     return (v / 1_000).toFixed(1).replace(/\.?0+$/, '') + 'k';
+  return Math.round(v).toLocaleString();
+}
+
+function cbrtPct(v, maxVal) {
+  if (!v || v <= 0 || !maxVal) return 0;
+  return Math.min(100, (Math.cbrt(v) / Math.cbrt(maxVal)) * 100);
+}
+
+// globalMax is passed in from renderPAGOTable so all bars share one scale
+// large=true renders a taller bar for the modal view
+function pagoBarHTML(current, month3, steadyState, upside, globalMax, large = false) {
+  const cur   = current     || 0;
+  const m3    = month3      || null;
+  const ss    = steadyState || null;
+  const up    = upside      || PAGO_UPSIDE_DEFAULT;
+  const scale = globalMax   || up;  // shared axis; falls back to deal's own upside
+
+  // All positions are relative to the shared scale
+  const fillPct = cbrtPct(cur,  scale);
+  const m3Pct   = m3 ? cbrtPct(m3, scale) : null;
+  const ssPct   = ss ? cbrtPct(ss, scale)  : null;
+  const upPct   = cbrtPct(up,  scale);   // ← no longer always 100%; moves with scale
+
+  const statColor = cur >= up          ? '#a78bfa'
+                  : (ss && cur >= ss)  ? '#00e5a0'
+                  : '#00c8e8';
+
+  // ── Label placement: above / below the track ─────────────────────────────
+  // Sort by position, then use greedy row assignment.
+  // Row 0 → rendered ABOVE the track.
+  // Row 1+ → rendered BELOW the track (collapsed into one below row).
+  // Two labels that are close therefore always end up on opposite sides — never overlap.
+  const labelDefs = [];
+  if (m3Pct != null) labelDefs.push({ pct: m3Pct, text: fmtCalls(m3),         color: '#475569' });
+  if (ssPct != null) labelDefs.push({ pct: ssPct, text: `SS ${fmtCalls(ss)}`, color: '#f59e0b' });
+  labelDefs.push(              { pct: upPct,  text: `↑ ${fmtCalls(up)}`, color: '#a78bfa' });
+  labelDefs.sort((a, b) => a.pct - b.pct);
+
+  const MIN_GAP = 13;
+  const rowEdge = [];
+  const rowIdx  = labelDefs.map(l => {
+    for (let r = 0; r < rowEdge.length; r++) {
+      if (l.pct - rowEdge[r] >= MIN_GAP) { rowEdge[r] = l.pct; return r; }
+    }
+    rowEdge.push(l.pct);
+    return rowEdge.length - 1;
+  });
+
+  const trackH = large ? 28 : 18;
+  const lblSz  = large ? '13px' : '11px';
+  const rowH   = large ? 22 : 18;
+  const statSz = large ? '18px' : '12px';
+  const LBL = `position:absolute;white-space:nowrap;font-size:${lblSz};font-weight:600;font-family:var(--mono);line-height:${rowH}px;transform:translateX(-50%)`;
+  const aboveHTML = labelDefs
+    .filter((_, i) => rowIdx[i] === 0)
+    .map(l => `<span style="${LBL};left:${l.pct}%;color:${l.color}">${l.text}</span>`).join('');
+  const belowHTML = labelDefs
+    .filter((_, i) => rowIdx[i] > 0)
+    .map(l => `<span style="${LBL};left:${l.pct}%;color:${l.color}">${l.text}</span>`).join('');
+
+  const rowHpx = rowH + 'px';
+
+  // ── Markers in track ───────────────────────────────────────────────────────
+  const m3Marker = m3Pct != null ? `<div class="pago-bar-marker pago-bar-marker-m3" style="left:${m3Pct}%"></div>` : '';
+  const ssMarker = ssPct != null ? `<div class="pago-bar-marker pago-bar-marker-ss" style="left:${ssPct}%"></div>` : '';
+  const upMarker = `<div class="pago-bar-marker pago-bar-marker-up" style="left:${upPct}%"></div>`;
+
+  return `
+    <div class="pago-bar-outer">
+      <div style="position:relative;height:${rowHpx};margin-bottom:4px">${aboveHTML}</div>
+      <div class="pago-bar-track" style="height:${trackH}px">
+        <div class="pago-bar-fill" style="width:${fillPct}%"></div>
+        ${m3Marker}${ssMarker}${upMarker}
+      </div>
+      ${belowHTML ? `<div style="position:relative;height:${rowHpx};margin-top:3px">${belowHTML}</div>` : ''}
+      <div class="pago-bar-stat" style="color:${statColor};font-size:${statSz};margin-top:${belowHTML ? 4 : 7}px">${fmtCalls(cur)} <span style="font-weight:400;color:#64748b;font-size:${large?'12px':'10px'}">calls / 30d</span></div>
+    </div>`;
+}
+
+async function loadPAGOUsage() {
+  const allDeals = data?.paygo?.all_pago_deals || [];
+  const ids = allDeals.map(d => d.account_id).filter(Boolean);
+
+  // Render immediately with whatever usage we have (may be empty on first load)
+  renderPAGOTable();
+  if (!ids.length) return;
+
+  // Show loading state on the usage column only
+  const tbody = document.getElementById('pago-usage-body');
+  if (tbody && !_pagoLoaded) {
+    tbody.querySelectorAll('td:last-child').forEach(td => {
+      td.innerHTML = '<span style="color:#334155;font-size:11px">loading…</span>';
+    });
+  }
+
+  try {
+    const resp = await fetch(`http://localhost:8000/api/pago-usage?ids=${ids.join(',')}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    _pagoUsage  = await resp.json();
+    _pagoLoaded = true;
+    renderPAGOTable();
+  } catch(e) {
+    console.warn('PAGO usage fetch failed:', e);
+  }
+}
+
+function renderPAGOTable() {
+  const allDeals = data?.paygo?.all_pago_deals;
+  const thead = document.getElementById('pago-usage-head');
+  const tbody = document.getElementById('pago-usage-body');
+  if (!allDeals || !allDeals.length) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No PayGo account data. Run a refresh.</td></tr>';
+    return;
+  }
+
+  // Sortable header — 3 columns
+  if (thead) {
+    thead.innerHTML = '<tr>' + PAGO_COLS.map(col => {
+      const active = _pagoSortKey === col.key;
+      const arrow  = active ? (_pagoSortDir === 1 ? '↑' : '↓') : '↕';
+      const w = col.key === 'close_date' ? 'width:110px' : col.key === 'account' ? 'width:200px' : '';
+      return `<th class="sortable-th${active ? ' sort-active' : ''}" style="cursor:pointer;${w}" onclick="sortPAGOTable('${col.key}')">${col.label} <i class="sort-arrow">${arrow}</i></th>`;
+    }).join('') + '</tr>';
+  }
+
+  const today = new Date();
+
+  // Enrich with computed fields
+  const enriched = allDeals.map(d => {
+    const closeDate = d.close_date ? new Date(d.close_date) : null;
+    const months    = closeDate ? (today - closeDate) / (1000 * 60 * 60 * 24 * 30.44) : null;
+    const usage30d  = d.account_id ? (_pagoUsage[d.account_id] ?? null) : null;
+    return { ...d, months, usage30d };
+  });
+
+  // Shared scale: max of all upside targets and all actual usage values
+  // This normalises every bar to the same axis so traffic can be compared visually
+  const globalMax = enriched.reduce((mx, d) => {
+    return Math.max(mx, d.volume_upside || 0, d.usage30d || 0);
+  }, PAGO_UPSIDE_DEFAULT);
+  _pagoModalGlobalMax = globalMax; // store for modal use
+
+  // Sort
+  const sorted = [...enriched].sort((a, b) => {
+    let diff = 0;
+    switch (_pagoSortKey) {
+      case 'account':    diff = (a.account||'').localeCompare(b.account||''); break;
+      case 'close_date': diff = (a.close_date||'').localeCompare(b.close_date||''); break;
+      case 'usage_30d':  diff = (a.usage30d ?? -1) - (b.usage30d ?? -1); break;
+    }
+    return diff * _pagoSortDir;
+  });
+
+  // Update the usage column header to show the shared scale ceiling
+  if (thead) {
+    const scaleLabel = `<span style="font-weight:400;color:#475569;font-size:9px;margin-left:6px">scale: 0 → ${fmtCalls(globalMax)}</span>`;
+    thead.querySelectorAll('th:last-child').forEach(th => {
+      const existing = th.querySelector('.sort-arrow');
+      if (existing && !th.querySelector('.pago-scale-lbl')) {
+        const span = document.createElement('span');
+        span.className = 'pago-scale-lbl';
+        span.innerHTML = scaleLabel;
+        th.appendChild(span);
+      }
+    });
+  }
+
+  // Store sorted deals for modal access
+  window._pagoSortedDeals = sorted;
+
+  const rows = sorted.map((d, idx) => {
+    const mo = d.months != null ? d.months.toFixed(1) + ' mo' : '';
+    const sfLink = d.account_id
+      ? `<a href="https://ydc.lightning.force.com/lightning/r/Account/${d.account_id}/view" target="_blank"
+           style="color:var(--text-hi);text-decoration:none;border-bottom:1px solid var(--border-hi)"
+           onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-hi)'"
+         >${d.account}</a>`
+      : (d.account || '—');
+    const repLabel = d.rep
+      ? `<div style="font-size:10px;color:#64748b;margin-top:2px;font-weight:400">${d.rep}</div>` : '';
+    const barHTML = _pagoLoaded
+      ? pagoBarHTML(d.usage30d, d.month3_target, d.steady_state, d.volume_upside, globalMax)
+      : '<span style="color:#334155;font-size:11px;padding:8px 0;display:block">loading…</span>';
+
+    return `<tr style="cursor:pointer" onclick="openPAGOModal(${idx})" onmouseover="this.style.background='rgba(167,139,250,0.06)'" onmouseout="this.style.background=''">
+      <td class="td-truncate" style="width:200px;vertical-align:top;padding-top:14px">
+        <strong>${sfLink}</strong>${repLabel}
+      </td>
+      <td style="width:110px;vertical-align:top;padding-top:14px;white-space:nowrap">
+        <div style="font-variant-numeric:tabular-nums">${d.close_date || '—'}</div>
+        <div style="font-size:10px;color:#64748b;margin-top:2px">${mo}</div>
+      </td>
+      <td>${barHTML}</td>
+    </tr>`;
+  }).join('');
+
+  if (tbody) tbody.innerHTML = rows || '<tr><td colspan="3" class="empty-state">No deals found.</td></tr>';
+}
+
+// ── Target accounts controls ──────────────────────────────────────────────────
+let _usageSortKey = 'signal';
+let _usageSortDir = 1;
+let _usageShowCustomers = false;
+let _usageSignalFilters = new Set(); // empty = show all
+
+function toggleSignalFilter(key) {
+  if (_usageSignalFilters.has(key)) _usageSignalFilters.delete(key);
+  else _usageSignalFilters.add(key);
+  renderUsageTable();
+}
+
+function clearSignalFilters() {
+  _usageSignalFilters.clear();
+  renderUsageTable();
+}
+
+function toggleUsageCustomers() {
+  _usageShowCustomers = !_usageShowCustomers;
+  const btn = document.getElementById('usage-cust-toggle');
+  if (btn) {
+    btn.textContent = _usageShowCustomers ? 'Hide' : 'Show';
+    btn.style.color = _usageShowCustomers ? '#f59e0b' : '#a78bfa';
+    btn.style.borderColor = _usageShowCustomers ? '#f59e0b' : 'var(--border-hi)';
+  }
+  renderUsageTable();
+}
+
+const USAGE_COLS = [
+  { key: 'account',        label: 'Account',      numeric: false },
+  { key: 'tier',           label: 'Tier',         numeric: false },
+  { key: 'signal',         label: 'Signals',      numeric: false },
+  { key: 'total_7d',       label: '7d Calls',     numeric: true  },
+  { key: 'total_30d',      label: '30d Calls',    numeric: true  },
+  { key: 'active_users_30d', label: 'Active Users', numeric: true },
+  { key: 'days_dark',      label: 'Days Dark',    numeric: true  },
+  { key: 'has_open_opp',   label: 'Open Opp?',   numeric: false },
+  { key: 'is_customer',    label: 'Customer?',    numeric: false },
+];
+
+function sortUsageTable(key) {
+  if (_usageSortKey === key) { _usageSortDir = -_usageSortDir; }
+  else { _usageSortKey = key; _usageSortDir = key === 'signal' || key === 'account' ? 1 : -1; }
+  renderUsageTable();
+}
+
+const SIGNAL_SORT_ORDER = ['risk','sales_gap','growth','multi_user','new_activity','no_signal'];
+const SIGNAL_LABELS = {
+  new_activity: 'New Activity',
+  growth: 'Growth',
+  multi_user: 'Multi-User',
+  sales_gap: 'Sales Gap',
+  risk: 'Risk',
+  no_signal: 'No Signal',
+};
+const PRIORITY_LABELS = {
+  'Act Now': { color: '#dc2626', emoji: '🔴' },
+  'High': { color: '#d97706', emoji: '🟠' },
+  'Medium': { color: '#f59e0b', emoji: '🟡' },
+  'Monitor': { color: '#6366f1', emoji: '🔵' },
+  'No Signal': { color: '#94a3b8', emoji: '⚫' },
+};
+
+function signalSortScore(signals) {
+  if (!signals || !signals.length) return 999;
+  const scores = signals.map(s => SIGNAL_SORT_ORDER.indexOf(s));
+  return Math.min(...scores.filter(s => s >= 0));
+}
+
+function renderUsageTable() {
+  const us = data?.usage_signals;
+  if (!us) return;
+
+  // Render sortable header
+  document.getElementById('usage-head').innerHTML = '<tr>' + USAGE_COLS.map(col => {
+    const active = _usageSortKey === col.key;
+    const arrow  = active ? (_usageSortDir === 1 ? '↑' : '↓') : '↕';
+    return `<th class="sortable-th${active ? ' sort-active' : ''}" style="cursor:pointer" onclick="sortUsageTable('${col.key}')">${col.label} <i class="sort-arrow">${arrow}</i></th>`;
+  }).join('') + '</tr>';
+
+  const rawRows = us[currentUsageTab] || [];
+  const custFiltered = _usageShowCustomers ? rawRows : rawRows.filter(r => !r.is_customer);
+  // Signal filter: if any active, keep rows that match at least one selected signal
+  const rows = _usageSignalFilters.size === 0 ? custFiltered : custFiltered.filter(r => {
+    const sigs = r.signals?.length ? r.signals : ['no_signal'];
+    return sigs.some(s => _usageSignalFilters.has(s));
+  });
+  const sorted = [...rows].sort((a, b) => {
+    let diff = 0;
+    switch (_usageSortKey) {
+      case 'signal':   diff = signalSortScore(a.signals) - signalSortScore(b.signals); break;
+      case 'account':  diff = (a.account||'').localeCompare(b.account||''); break;
+      case 'tier':     diff = (a.tier||'').localeCompare(b.tier||''); break;
+      case 'has_open_opp':  diff = (b.has_open_opp  ? 1 : 0) - (a.has_open_opp  ? 1 : 0); break;
+      case 'is_customer':   diff = (b.is_customer   ? 1 : 0) - (a.is_customer   ? 1 : 0); break;
+      default:         diff = ((a[_usageSortKey] ?? -1) - (b[_usageSortKey] ?? -1));
+    }
+    return diff * _usageSortDir;
+  });
+
+  // Signal summary chips — counts from customer-filtered rows (pre signal-filter)
+  const sigTypeCounts = { risk: 0, sales_gap: 0, growth: 0, multi_user: 0, new_activity: 0, no_signal: 0 };
+  custFiltered.forEach(r => {
+    if (!r.signals || !r.signals.length) { sigTypeCounts.no_signal++; return; }
+    r.signals.forEach(s => { if (sigTypeCounts[s] != null) sigTypeCounts[s]++; });
+  });
+  const chipsConfig = [
+    { key: 'risk',         emoji: '🔴', label: 'Risk',         color: '#dc2626' },
+    { key: 'sales_gap',    emoji: '🟠', label: 'Sales Gap',    color: '#d97706' },
+    { key: 'growth',       emoji: '🟡', label: 'Growth',       color: '#d97706' },
+    { key: 'multi_user',   emoji: '🟣', label: 'Multi-User',   color: '#7c3aed' },
+    { key: 'new_activity', emoji: '🟢', label: 'New Activity', color: '#16a34a' },
+    { key: 'no_signal',    emoji: '⚫', label: 'No Signal',    color: '#94a3b8' },
+  ];
+  const anyActive = _usageSignalFilters.size > 0;
+  document.getElementById('signal-chips').innerHTML =
+    chipsConfig.map(c => {
+      const cnt      = sigTypeCounts[c.key] || 0;
+      const isActive = _usageSignalFilters.has(c.key);
+      const dimmed   = anyActive && !isActive;
+      return `<div class="sig-chip" onclick="toggleSignalFilter('${c.key}')" style="cursor:pointer;${isActive ? `border-color:${c.color};box-shadow:0 0 0 1px ${c.color}` : ''};opacity:${dimmed ? '0.38' : '1'}">
+        <span>${c.emoji}</span>
+        <span class="count" style="color:${c.color}">${cnt}</span>
+        <span style="color:${isActive ? '#f1f5f9' : '#64748b'}">${c.label}</span>
+        ${isActive ? `<span style="color:${c.color};font-size:9px;margin-left:2px">✕</span>` : ''}
+      </div>`;
+    }).join('')
+    + (anyActive
+      ? `<div class="sig-chip" onclick="clearSignalFilters()" style="cursor:pointer;border-color:#334155;color:#64748b;gap:4px">
+           <span style="font-size:10px">✕</span> <span style="color:#94a3b8">Clear</span>
+         </div>`
+      : '');
+
+  // Table rows
+  const tbody = sorted.map(r => {
+    const signals = r.signals || [];
+    const badges = signals.map(s =>
+      `<span class="signal-badge sig-${s}">${SIGNAL_LABELS[s]||s}</span>`
+    ).join('');
+    return `<tr>
+      <td class="td-truncate"><strong>${r.account_id
+        ? `<a href="https://ydc.lightning.force.com/lightning/r/Account/${r.account_id}/view" target="_blank" style="color:var(--text-hi);text-decoration:none;border-bottom:1px solid var(--border-hi)" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-hi)'">${r.account}</a>`
+        : r.account}</strong></td>
+      <td>${r.tier||''}</td>
+      <td>${badges || '<span class="signal-badge sig-no_signal">No Signal</span>'}</td>
+      <td>${r.total_7d != null ? Math.round(r.total_7d).toLocaleString() : '-'}</td>
+      <td>${r.total_30d != null ? Math.round(r.total_30d).toLocaleString() : '-'}</td>
+      <td>${r.active_users_30d ?? '-'}</td>
+      <td>${r.days_dark != null ? r.days_dark + 'd' : '-'}</td>
+      <td>${r.has_open_opp ? '<span style="color:#16a34a;font-weight:700">Yes</span>' : '<span style="color:#94a3b8">No</span>'}</td>
+      <td>${r.is_customer ? '<span style="color:#a78bfa;font-weight:700">Yes</span>' : '<span style="color:#94a3b8">No</span>'}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('usage-body').innerHTML = tbody || '<tr><td colspan="8" class="empty-state">No accounts found.</td></tr>';
+}
+
+// ===================== INIT =====================
+const VALID_TABS = ['tab-snapshot','tab-paygo','tab-pipeline','tab-changes','tab-activity','tab-usage','tab-sources'];
+document.addEventListener('DOMContentLoaded', () => {
+  // Measure real header height so the sticky tab nav sits flush beneath it
+  const hdr = document.querySelector('.page-header');
+  if (hdr) document.documentElement.style.setProperty('--header-h', hdr.offsetHeight + 'px');
+  loadData();
+});
+</script>
+<!-- Opp detail modal -->
+<div class="opp-modal-overlay" id="opp-modal-overlay" onclick="closeOppModal(event)">
+  <div class="opp-modal" id="opp-modal">
+    <button class="opp-modal-close" onclick="closeOppModal()">✕</button>
+    <div id="opp-modal-body"><div class="opp-modal-loading">Loading…</div></div>
+  </div>
+</div>
+
+<div class="opp-modal-overlay" id="pago-modal-overlay" onclick="closePAGOModal(event)">
+  <div class="pago-modal" id="pago-modal">
+    <button class="opp-modal-close" onclick="closePAGOModal()">✕</button>
+    <div id="pago-modal-body"></div>
+  </div>
+</div>
+
+<script>
+function closeOppModal(e) {
+  if (e && e.target !== document.getElementById('opp-modal-overlay')) return;
+  document.getElementById('opp-modal-overlay').classList.remove('open');
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.getElementById('opp-modal-overlay').classList.remove('open');
+    document.getElementById('pago-modal-overlay').classList.remove('open');
+  }
+});
+
+// ── PayGo deal modal ──────────────────────────────────────────────────────────
+let _pagoModalGlobalMax = null;
+
+function closePAGOModal(e) {
+  if (e && e.target !== document.getElementById('pago-modal-overlay')) return;
+  document.getElementById('pago-modal-overlay').classList.remove('open');
+}
+
+function openPAGOModal(idx) {
+  const deal = window._pagoSortedDeals?.[idx];
+  if (!deal) return;
+  document.getElementById('pago-modal-overlay').classList.add('open');
+
+  const d          = deal;
+  const usage30d   = d.account_id ? (_pagoUsage[d.account_id] ?? null) : null;
+  const globalMax  = _pagoModalGlobalMax;
+  const statColor  = usage30d != null && d.volume_upside && usage30d >= d.volume_upside ? '#a78bfa'
+                   : usage30d != null && d.steady_state  && usage30d >= d.steady_state  ? '#00e5a0'
+                   : '#00c8e8';
+
+  const sfLink = d.account_id
+    ? `<a href="https://ydc.lightning.force.com/lightning/r/Account/${d.account_id}/view" target="_blank"
+         style="color:var(--accent);font-family:var(--mono);font-size:10px;text-decoration:none">
+         Open in Salesforce ↗</a>`
+    : '';
+
+  const fmtN = v => v != null ? Number(v).toLocaleString() : '—';
+
+  const mo = d.months != null ? d.months.toFixed(1) + ' months' : '—';
+
+  const bar = pagoBarHTML(usage30d, d.month3_target, d.steady_state, d.volume_upside, null, true);
+
+  document.getElementById('pago-modal-body').innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
+      <h2>${d.account || '—'}</h2>
+      ${sfLink}
+    </div>
+    <div class="pago-modal-rep">${d.rep || ''}</div>
+
+    <div class="pago-modal-meta">
+      <div class="pago-modal-meta-item">
+        <label>Close Date</label>
+        <div class="v">${d.close_date || '—'}</div>
+      </div>
+      <div class="pago-modal-meta-item">
+        <label>Months Since Close</label>
+        <div class="v">${mo}</div>
+      </div>
+      <div class="pago-modal-meta-item">
+        <label>Product</label>
+        <div class="v" style="font-size:12px">${d.sub || 'API Credit – PayGo'}</div>
+      </div>
+    </div>
+
+    <div class="pago-modal-section">30-Day Usage vs. Targets</div>
+    <div style="padding:4px 0 8px">${bar}</div>
+
+    <div class="pago-modal-section">Volume Targets</div>
+    <div class="pago-modal-targets">
+      <div class="pago-modal-target">
+        <label>Month 3 Target</label>
+        <div class="v" style="color:#64748b">${fmtN(d.month3_target)}</div>
+      </div>
+      <div class="pago-modal-target">
+        <label>Steady State</label>
+        <div class="v" style="color:#f59e0b">${fmtN(d.steady_state)}</div>
+      </div>
+      <div class="pago-modal-target">
+        <label>Upside</label>
+        <div class="v" style="color:#a78bfa">${fmtN(d.volume_upside)}</div>
+      </div>
+    </div>`;
+}
+
+async function openOppModal(oppId, accountName) {
+  const overlay = document.getElementById('opp-modal-overlay');
+  const body    = document.getElementById('opp-modal-body');
+  body.innerHTML = '<div class="opp-modal-loading">// Loading…</div>';
+  overlay.classList.add('open');
+
+  try {
+    const resp = await fetch(`http://localhost:8000/api/opp/${oppId}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const d = await resp.json();
+
+    const fmtN = v => v != null ? Number(v).toLocaleString() : null;
+    const fmtD = v => v != null ? `$${Number(v).toFixed(2)}` : null;
+    const fmtA = v => v != null ? fmt$(v) : null;
+
+    const field = (label, val, full) => {
+      const display = val != null
+        ? `<div class="val">${val}</div>`
+        : `<div class="val nil">—</div>`;
+      return `<div class="opp-modal-field${full?' full':''}"><label>${label}</label>${display}</div>`;
+    };
+
+    body.innerHTML = `
+      <h2>${accountName}</h2>
+      <div class="opp-modal-sub">${d.owner || '—'}</div>
+
+      <div class="opp-modal-section">Volume Potential</div>
+      <div class="opp-modal-grid">
+        ${field('API Calls / Month — Month 3',         fmtN(d.api_calls_month3))}
+        ${field('API Calls / Month — Steady State',    fmtN(d.api_calls_steady))}
+        ${field('Total Volume Upside (Monthly)',        fmtN(d.volume_upside))}
+        ${field('Primary API Endpoint',                d.primary_endpoint)}
+      </div>
+
+      <div class="opp-modal-section">Revenue Estimates</div>
+      <div class="opp-modal-grid">
+        ${field('Contract Value',                      fmtA(d.amount))}
+        ${field('Est. Annualized Revenue Potential',   fmtA(d.annual_rev_potential))}
+        ${field('Blended CPM (Cost / API Call)',        d.blended_cpm != null ? `$${Number(d.blended_cpm).toFixed(3)}` : null)}
+      </div>
+
+      <div style="margin-top:20px;text-align:right">
+        <a href="https://ydc.lightning.force.com/lightning/r/Opportunity/${d.opp_id}/view"
+           target="_blank" style="font-family:var(--mono);font-size:10px;color:var(--accent)">
+          Open in Salesforce ↗
+        </a>
+      </div>`;
+  } catch(e) {
+    body.innerHTML = `<div class="opp-modal-loading" style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+</script>
+</body>
+</html>
