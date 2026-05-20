@@ -555,11 +555,18 @@ def build_activity(sf, id_map: dict) -> dict:
         t    = (task.get("Type") or "").strip()
         sub  = (task.get("TaskSubtype") or "").strip()
         subj = (task.get("Subject") or "").lower()
+        t_lo = t.lower()
         if "[gong" in subj or "gong out" in subj or "gong in" in subj:
-            return "Call (Gong)"
+            return "Call"
         if "[apollo" in subj or "apollo seq" in subj:
             return "Email (Apollo)"
-        if "linkedin" in subj or sub.lower() == "linkedinmail":
+        if (
+            "linkedin" in subj
+            or "inmail" in subj
+            or sub.lower() in ("linkedinmail", "linkedin")
+            or "linkedin" in t_lo
+            or "inmail" in t_lo
+        ):
             return "LinkedIn"
         if t in ("Call", "Meeting"):
             return "Call"
@@ -595,6 +602,13 @@ def build_activity(sf, id_map: dict) -> dict:
                 by_rep_by_week[owner_name][wi] += 1
                 by_type_by_week[wi][kind] = by_type_by_week[wi].get(kind, 0) + 1
                 break
+
+    # Log any unknown types to help debug classification gaps
+    known = {"Call", "Email (Apollo)", "Email", "LinkedIn", "Other"}
+    unknown_types = {k: v for k, v in by_type.items() if k not in known}
+    if unknown_types:
+        print(f"    Unknown activity types (may need classification): {unknown_types}", file=sys.stderr)
+    print(f"    Activity types: { {k: v for k, v in sorted(by_type.items(), key=lambda x: -x[1])} }")
 
     # Also try the SF activity report
     try:

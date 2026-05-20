@@ -2133,13 +2133,18 @@ function renderOutboundMix() {
   }
 
   const TYPE_COLORS = {
-    'Call (Gong)':   '#00c8e8',
-    'Call':          '#38bdf8',
+    'Call':          '#00c8e8',
     'Email (Apollo)':'#f59e0b',
     'Email':         '#fb923c',
     'LinkedIn':      '#6366f1',
     'Other':         '#94a3b8',
   };
+
+  // Collapse legacy "Call (Gong)" into "Call"
+  if (byType['Call (Gong)']) {
+    byType['Call'] = (byType['Call'] || 0) + byType['Call (Gong)'];
+    delete byType['Call (Gong)'];
+  }
 
   // Sort by count desc
   const entries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
@@ -2175,7 +2180,7 @@ function renderOutboundMix() {
         const cy = (chartArea.top + chartArea.bottom) / 2;
         ctx.save();
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#f1f5f9';
+        ctx.fillStyle = '#0f172a';
         ctx.font = `700 20px "JetBrains Mono", monospace`;
         ctx.fillText(total.toLocaleString(), cx, cy - 8);
         ctx.fillStyle = '#64748b';
