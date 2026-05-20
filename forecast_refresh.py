@@ -995,9 +995,11 @@ def build_usage_signals(sf) -> dict:
 
 # ── Section 8: paygo ──────────────────────────────────────────────────────────
 
-PAYGO_REPORT_ID     = "00OVq00000D8YD7MAN"
-PAYGO_TARGET_TEAM   = 20   # per team
-PAYGO_TARGET_TOTAL  = 40   # combined
+PAYGO_REPORT_ID        = "00OVq00000D8YD7MAN"
+PAYGO_TARGET_TEAM      = 20   # per team  (CQ)
+PAYGO_TARGET_TOTAL     = 40   # combined  (CQ)
+PAYGO_FY_TARGET_TEAM   = 80   # per team  (FY — 4× CQ)
+PAYGO_FY_TARGET_TOTAL  = 160  # combined  (FY)
 
 def build_paygo(sf, id_map: dict) -> dict:
     print("  [8/9] Pulling PayGo data...")
@@ -1088,10 +1090,11 @@ def build_paygo(sf, id_map: dict) -> dict:
         for d in all_pago_rows:
             acct = (d.get("Account") or {})
             acct_id = acct.get("Id") or ""
-            # Deduplicate by account — keep earliest close date
+            # Deduplicate by account — ORDER BY CloseDate DESC keeps most recent first
             name_parts = [p.strip() for p in (d.get("Name") or "").split("|")]
             sub = name_parts[4] if len(name_parts) > 4 else ""
             if acct_id and acct_id in seen_acct_ids:
+                print(f"      Skipping duplicate PAGO deal for {acct.get('Name')} ({d.get('Name')}, {d.get('CloseDate')})")
                 continue
             if acct_id:
                 seen_acct_ids.add(acct_id)
@@ -1112,7 +1115,7 @@ def build_paygo(sf, id_map: dict) -> dict:
         print(f"    Warning: All-time PAGO query failed: {e}", file=sys.stderr)
         all_pago_deals = []
 
-    # ── Aggregate by team ─────────────────────────────────────────────────────
+    # ── Aggregate by team (CQ) ───────────────────────────────────────────────
     nick_count = sum(count_by_rep.get(n, 0) for n in NICK_TEAM)
     ivy_count  = sum(count_by_rep.get(n, 0) for n in IVY_TEAM)
 
@@ -1121,15 +1124,76 @@ def build_paygo(sf, id_map: dict) -> dict:
         for name in ALL_REPS
     }
 
+    # ── FY counts + deals ────────────────────────────────────────────────────
+    fy_count_by_rep: dict[str, int] = {n: 0 for n in ALL_REPS}
+    fy_deals: list[dict] = []
+    try:
+        fy_rows = soql(sf, f"""
+            SELECT OwnerId, COUNT(Id) cnt
+            FROM Opportunity
+            WHERE IsWon = true
+            AND CloseDate >= {FY_START}
+            AND CloseDate <= {FY_END}
+            AND OwnerId IN ('{all_ids_str}')
+            AND Name LIKE '%PayGo%'
+            GROUP BY OwnerId
+        """)
+        for r in fy_rows:
+            name = id_to_name.get(r.get("OwnerId") or "", "")
+            if name in fy_count_by_rep:
+                fy_count_by_rep[name] = r.get("cnt") or r.get("expr0") or 0
+
+        fy_deal_rows = soql(sf, f"""
+            SELECT Name, Account.Id, Account.Name, Account.Account_Tier__c,
+                   OwnerId, Amount, CloseDate
+            FROM Opportunity
+            WHERE IsWon = true
+            AND CloseDate >= {FY_START}
+            AND CloseDate <= {FY_END}
+            AND OwnerId IN ('{all_ids_str}')
+            AND Name LIKE '%PayGo%'
+            ORDER BY CloseDate DESC
+        """)
+        for d in fy_deal_rows:
+            acct = (d.get("Account") or {})
+            name_parts = [p.strip() for p in (d.get("Name") or "").split("|")]
+            product = name_parts[3] if len(name_parts) > 3 else "PayGo"
+            sub     = name_parts[4] if len(name_parts) > 4 else ""
+            fy_deals.append({
+                "account":    acct.get("Name") or (name_parts[0] if name_parts else ""),
+                "account_id": acct.get("Id") or "",
+                "tier":       acct.get("Account_Tier__c") or "—",
+                "rep":        id_to_name.get(d.get("OwnerId") or "", ""),
+                "product":    product,
+                "sub":        sub,
+                "amount":     d.get("Amount") or 0,
+                "close_date": (d.get("CloseDate") or "")[:10],
+            })
+        print(f"    FY PayGo: {len(fy_deals)} deals")
+    except Exception as e:
+        print(f"    Warning: FY PayGo query failed: {e}", file=sys.stderr)
+
+    fy_nick_count = sum(fy_count_by_rep.get(n, 0) for n in NICK_TEAM)
+    fy_ivy_count  = sum(fy_count_by_rep.get(n, 0) for n in IVY_TEAM)
+    fy_by_rep = {name: {"count": fy_count_by_rep.get(name, 0)} for name in ALL_REPS}
+
     return {
         "target_per_team": PAYGO_TARGET_TEAM,
         "target_total":    PAYGO_TARGET_TOTAL,
         "nick_team":  {"count": nick_count,              "target": PAYGO_TARGET_TEAM},
         "ivy_team":   {"count": ivy_count,               "target": PAYGO_TARGET_TEAM},
         "combined":   {"count": nick_count + ivy_count,  "target": PAYGO_TARGET_TOTAL},
-        "by_rep":          by_rep,
-        "deals":           deals,
-        "all_pago_deals":  all_pago_deals,
+        "by_rep":     by_rep,
+        "deals":      deals,
+        # FY equivalents
+        "fy_target_per_team": PAYGO_FY_TARGET_TEAM,
+        "fy_target_total":    PAYGO_FY_TARGET_TOTAL,
+        "fy_nick_team":  {"count": fy_nick_count,                "target": PAYGO_FY_TARGET_TEAM},
+        "fy_ivy_team":   {"count": fy_ivy_count,                 "target": PAYGO_FY_TARGET_TEAM},
+        "fy_combined":   {"count": fy_nick_count + fy_ivy_count, "target": PAYGO_FY_TARGET_TOTAL},
+        "fy_by_rep":     fy_by_rep,
+        "fy_deals":      fy_deals,
+        "all_pago_deals": all_pago_deals,
     }
 
 

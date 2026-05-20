@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sales Forecast Review</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230284c7'/><polyline points='4,24 10,16 16,20 22,10 28,14' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
@@ -506,9 +507,15 @@
 <!-- ===================== TAB PAYGO ===================== -->
 <div class="tab-content" id="tab-paygo">
 
+  <!-- Period toggle -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <button class="qpb-toggle active" id="paygo-period-cq" onclick="setPaygoPeriod('cq',this)">CQ</button>
+    <button class="qpb-toggle"        id="paygo-period-fy" onclick="setPaygoPeriod('fy',this)">FY</button>
+  </div>
+
   <!-- Team progress bars -->
   <div class="grid-1 card" style="margin-bottom:10px">
-    <div class="card-title">Team Progress — Q2 PayGo Target</div>
+    <div class="card-title" id="paygo-progress-title">Team Progress — Q2 PayGo Target</div>
     <div id="paygo-team-bars"></div>
   </div>
 
@@ -1247,6 +1254,15 @@ function renderCQDealList() {
 }
 
 // ===================== TAB PAYGO =====================
+let _paygoPeriod = 'cq';
+
+function setPaygoPeriod(period, btn) {
+  _paygoPeriod = period;
+  document.querySelectorAll('#tab-paygo .qpb-toggle').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderPayGo();
+}
+
 function renderPayGo() {
   const pg = data?.paygo;
   if (!pg || pg.error) {
@@ -1254,8 +1270,17 @@ function renderPayGo() {
     return;
   }
 
-  const TARGET_TEAM  = pg.target_per_team || 20;
-  const TARGET_TOTAL = pg.target_total    || 40;
+  const isFY = _paygoPeriod === 'fy';
+  const TARGET_TEAM  = isFY ? (pg.fy_target_per_team || 80) : (pg.target_per_team || 20);
+  const TARGET_TOTAL = isFY ? (pg.fy_target_total    || 160) : (pg.target_total   || 40);
+  const nickData     = isFY ? pg.fy_nick_team  : pg.nick_team;
+  const ivyData      = isFY ? pg.fy_ivy_team   : pg.ivy_team;
+  const combinedData = isFY ? pg.fy_combined   : pg.combined;
+  const repData      = isFY ? pg.fy_by_rep     : pg.by_rep;
+  const dealsData    = isFY ? pg.fy_deals      : pg.deals;
+
+  const titleEl = document.getElementById('paygo-progress-title');
+  if (titleEl) titleEl.textContent = isFY ? 'Team Progress — FY PayGo Target' : 'Team Progress — Q2 PayGo Target';
 
   // ── Team progress bars ──────────────────────────────────────────────────────
   function teamBar(label, count, target) {
@@ -1279,9 +1304,9 @@ function renderPayGo() {
       </div>`;
   }
 
-  const nickCount = pg.nick_team?.count || 0;
-  const ivyCount  = pg.ivy_team?.count  || 0;
-  const allCount  = pg.combined?.count  || 0;
+  const nickCount = nickData?.count     || 0;
+  const ivyCount  = ivyData?.count      || 0;
+  const allCount  = combinedData?.count || 0;
 
   document.getElementById('paygo-team-bars').innerHTML =
     teamBar('All', allCount, TARGET_TOTAL) +
@@ -1289,7 +1314,7 @@ function renderPayGo() {
     teamBar('Team Ivy',  ivyCount,  TARGET_TEAM);
 
   // ── Rep breakdown table ─────────────────────────────────────────────────────
-  const byRep = pg.by_rep || {};
+  const byRep = repData || {};
   window._paygoRepRows = ALL_REPS
     .filter(n => byRep[n] != null)
     .map(n => ({
@@ -1298,7 +1323,7 @@ function renderPayGo() {
       count: byRep[n].count || 0,
     }));
   window._paygoRepSort    = { key: 'count', dir: -1 };
-  window._paygoDeals      = pg.deals || [];
+  window._paygoDeals      = dealsData || [];
   window._paygoDealsSort  = { key: 'close_date', dir: -1 };
   window._paygoTargetTeam = TARGET_TEAM;
 
@@ -1402,7 +1427,15 @@ function renderPayGoDealsTable() {
     const isNew = d.close_date && new Date(d.close_date) >= cutoff;
     const newBadge = isNew ? `<span style="font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 6px;background:rgba(0,229,160,0.15);color:#00e5a0;border:1px solid rgba(0,229,160,0.35);letter-spacing:0.06em;margin-left:7px;vertical-align:middle">NEW</span>` : '';
     return `<tr>
-    <td class="td-truncate" title="${d.account || ''}"><strong style="color:var(--text-hi)">${d.account || '—'}</strong>${newBadge}</td>
+    <td style="max-width:190px" title="${d.account || ''}">
+      <div style="display:flex;align-items:center;gap:6px;min-width:0">
+        ${d.account_id
+          ? `<a href="https://ydc.lightning.force.com/lightning/r/Account/${d.account_id}/view" target="_blank" style="color:var(--text-hi);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;display:block;font-weight:700" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${d.account || '—'}</a>`
+          : `<strong style="color:var(--text-hi);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${d.account || '—'}</strong>`
+        }
+        ${newBadge}
+      </div>
+    </td>
     <td>${d.rep || '—'}</td>
     <td>${TIER_BADGE[d.tier] || `<span style="color:var(--text-dim);font-family:var(--mono);font-size:10px">${d.tier || '—'}</span>`}</td>
     <td style="font-family:var(--mono);font-size:11px;color:var(--text)">${d.sub || d.product || '—'}</td>
@@ -1546,7 +1579,7 @@ function renderChanges() {
       : null;
     const potPct = potVal != null ? Math.min(100, (potVal / 100000) * 100) : null;
 
-    return { g, amt, moveBadge, moveBadgeLabel, moveJump: jump, disBadge, disBadgeLabel, slipDays, colStage, sub, score, potPct, potVal };
+    return { g, amt, moveBadge, moveBadgeLabel, moveJump: jump, disBadge, disBadgeLabel, dis, slipDays, colStage, sub, score, potPct, potVal, fromStage, toStage };
   });
 
   // 4. Filter lost if toggle off
@@ -1590,7 +1623,7 @@ function renderChanges() {
     const isLost = stage === 'Closed Lost';
     const hdrCls = isWon ? 'won-hdr' : isLost ? 'lost-hdr' : '';
     const cardsHtml = cards.length
-      ? cards.map(({ g, amt, moveBadge, moveBadgeLabel, moveJump, disBadge, disBadgeLabel, slipDays, sub, potPct, potVal }) => {
+      ? cards.map(({ g, amt, moveBadge, moveBadgeLabel, moveJump, disBadge, disBadgeLabel, dis, slipDays, sub, potPct, potVal, fromStage, toStage }) => {
           const topBorder = moveBadge ? `m-${moveBadge}` : '';
           return `
           <div class="dc-mini ${topBorder}" title="${g.opp_name}"
@@ -1599,14 +1632,19 @@ function renderChanges() {
               <div class="dc-mini-name">${g.opp_id
                 ? `<a href="https://ydc.lightning.force.com/lightning/r/Opportunity/${g.opp_id}/view" target="_blank" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;border-bottom:1px solid var(--border-hi)" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='inherit'">${g.account || g.opp_name}</a>`
                 : (g.account || g.opp_name)}</div>
-              <span class="dc-mini-badge ${disBadge}">${disBadgeLabel}</span>
+              <span class="dc-mini-badge ${disBadge}" title="${dis != null ? `${dis} day${dis!==1?'s':''} in current stage` : 'Days in stage unknown'}">${disBadgeLabel}</span>
             </div>
             ${amt > 0 ? `<div class="dc-mini-amt">${fmt$(amt)}</div>` : ''}
             ${sub ? `<div class="dc-mini-meta" style="margin-top:2px">${sub}</div>` : ''}
             ${slipHtml(slipDays)}
             <div class="dc-mini-meta" style="margin-top:3px;display:flex;justify-content:space-between;align-items:center">
               <span>${ownerShort(g.owner)} · ${(g.changed_at||'').slice(5)}</span>
-              ${moveBadge ? `<span class="dc-mini-badge ${moveBadge}${(moveBadge==='advanced'||moveBadge==='regressed')&&Math.abs(moveJump||0)>=2?' multi':''}" style="font-size:7px">${moveBadgeLabel}</span>` : ''}
+              ${moveBadge ? `<span class="dc-mini-badge ${moveBadge}${(moveBadge==='advanced'||moveBadge==='regressed')&&Math.abs(moveJump||0)>=2?' multi':''}" style="font-size:7px" title="${
+                moveBadge === 'won'       ? 'Closed Won' :
+                moveBadge === 'lost'      ? 'Closed Lost' :
+                moveBadge === 'advanced'  ? `Stage advanced: ${fromStage} → ${toStage}` :
+                moveBadge === 'regressed' ? `Stage regressed: ${fromStage} → ${toStage}` : ''
+              }">${moveBadgeLabel}</span>` : ''}
             </div>
             <div style="margin-top:6px;display:flex;align-items:center;gap:4px" title="${potVal != null ? fmt$(potVal) + ' annualised potential' : 'No volume data'}">
               <span style="font-family:var(--mono);font-size:8px;color:${potPct != null ? 'var(--green)' : 'var(--border-hi)'};flex-shrink:0">$</span>
