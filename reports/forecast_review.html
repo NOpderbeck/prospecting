@@ -1271,8 +1271,8 @@ function renderPayGo() {
   }
 
   const isFY = _paygoPeriod === 'fy';
-  const TARGET_TEAM  = isFY ? (pg.fy_target_per_team || 80) : (pg.target_per_team || 20);
-  const TARGET_TOTAL = isFY ? (pg.fy_target_total    || 160) : (pg.target_total   || 40);
+  const TARGET_TEAM  = (isFY ? pg.fy_target_per_team : pg.target_per_team) || 20;
+  const TARGET_TOTAL = (isFY ? pg.fy_target_total    : pg.target_total)    || 40;
   const nickData     = isFY ? pg.fy_nick_team  : pg.nick_team;
   const ivyData      = isFY ? pg.fy_ivy_team   : pg.ivy_team;
   const combinedData = isFY ? pg.fy_combined   : pg.combined;

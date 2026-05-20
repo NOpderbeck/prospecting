@@ -996,10 +996,8 @@ def build_usage_signals(sf) -> dict:
 # ── Section 8: paygo ──────────────────────────────────────────────────────────
 
 PAYGO_REPORT_ID        = "00OVq00000D8YD7MAN"
-PAYGO_TARGET_TEAM      = 20   # per team  (CQ)
-PAYGO_TARGET_TOTAL     = 40   # combined  (CQ)
-PAYGO_FY_TARGET_TEAM   = 80   # per team  (FY — 4× CQ)
-PAYGO_FY_TARGET_TOTAL  = 160  # combined  (FY)
+PAYGO_TARGET_TEAM   = 20   # per team
+PAYGO_TARGET_TOTAL  = 40   # combined
 
 def build_paygo(sf, id_map: dict) -> dict:
     print("  [8/9] Pulling PayGo data...")
@@ -1185,12 +1183,12 @@ def build_paygo(sf, id_map: dict) -> dict:
         "combined":   {"count": nick_count + ivy_count,  "target": PAYGO_TARGET_TOTAL},
         "by_rep":     by_rep,
         "deals":      deals,
-        # FY equivalents
-        "fy_target_per_team": PAYGO_FY_TARGET_TEAM,
-        "fy_target_total":    PAYGO_FY_TARGET_TOTAL,
-        "fy_nick_team":  {"count": fy_nick_count,                "target": PAYGO_FY_TARGET_TEAM},
-        "fy_ivy_team":   {"count": fy_ivy_count,                 "target": PAYGO_FY_TARGET_TEAM},
-        "fy_combined":   {"count": fy_nick_count + fy_ivy_count, "target": PAYGO_FY_TARGET_TOTAL},
+        # FY equivalents (same targets as CQ)
+        "fy_target_per_team": PAYGO_TARGET_TEAM,
+        "fy_target_total":    PAYGO_TARGET_TOTAL,
+        "fy_nick_team":  {"count": fy_nick_count,                "target": PAYGO_TARGET_TEAM},
+        "fy_ivy_team":   {"count": fy_ivy_count,                 "target": PAYGO_TARGET_TEAM},
+        "fy_combined":   {"count": fy_nick_count + fy_ivy_count, "target": PAYGO_TARGET_TOTAL},
         "fy_by_rep":     fy_by_rep,
         "fy_deals":      fy_deals,
         "all_pago_deals": all_pago_deals,
