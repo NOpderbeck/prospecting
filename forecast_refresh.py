@@ -241,6 +241,34 @@ def build_forecast(sf, id_map: dict) -> dict:
         by_rep[name]["fy_closed_won"] = fy_cw_by_rep.get(name, 0)
         by_rep[name]["fy_quota"]      = ANNUAL_QUOTAS.get(name, 0)
 
+    # All CQ opps (open + closed) for the deal list table
+    cq_opp_rows = soql(sf, f"""
+        SELECT Id, Name, Account.Name, StageName, ForecastCategoryName,
+               Amount, CloseDate, OwnerId, IsClosed, IsWon
+        FROM Opportunity
+        WHERE CloseDate >= {Q2_START}
+        AND CloseDate <= {Q2_END}
+        AND OwnerId IN ('{all_ids_str}')
+        ORDER BY Amount DESC NULLS LAST
+    """)
+    id_to_name = {v: k for k, v in id_map.items()}
+    cq_deals = []
+    for r in cq_opp_rows:
+        acct = (r.get("Account") or {})
+        cq_deals.append({
+            "opp_id":    r.get("Id") or "",
+            "opp_name":  r.get("Name") or "",
+            "account":   acct.get("Name") or "",
+            "stage":     r.get("StageName") or "",
+            "category":  r.get("ForecastCategoryName") or "",
+            "amount":    r.get("Amount") or 0,
+            "close_date": (r.get("CloseDate") or "")[:10],
+            "owner":     id_to_name.get(r.get("OwnerId") or "", ""),
+            "is_won":    bool(r.get("IsWon")),
+            "is_closed": bool(r.get("IsClosed")),
+        })
+    print(f"    CQ deal list: {len(cq_deals)} opps")
+
     return {
         "team_quota":  TEAM_TOTAL_QUOTA,
         "nick_team":   {"quota": TEAM_QUOTA_NICK, **nick_t},
@@ -252,6 +280,7 @@ def build_forecast(sf, id_map: dict) -> dict:
             "ivy":  TEAM_ANNUAL_QUOTA_IVY,
             "all":  TEAM_ANNUAL_QUOTA_TOTAL,
         },
+        "cq_deals": cq_deals,
     }
 
 
@@ -512,15 +541,37 @@ def build_activity(sf, id_map: dict) -> dict:
     window_end   = "2026-05-16"
 
     tasks = soql(sf, f"""
-        SELECT OwnerId, Owner.Name, ActivityDate
+        SELECT OwnerId, Owner.Name, ActivityDate, Type, TaskSubtype, Subject
         FROM Task
         WHERE OwnerId IN ('{all_ids_str}')
         AND ActivityDate >= {window_start}
         AND ActivityDate <= {window_end}
     """)
 
+    def _classify(task: dict) -> str:
+        t    = (task.get("Type") or "").strip()
+        sub  = (task.get("TaskSubtype") or "").strip()
+        subj = (task.get("Subject") or "").lower()
+        if "[gong" in subj or "gong out" in subj or "gong in" in subj:
+            return "Call (Gong)"
+        if "[apollo" in subj or "apollo seq" in subj:
+            return "Email (Apollo)"
+        if "linkedin" in subj or sub.lower() == "linkedinmail":
+            return "LinkedIn"
+        if t in ("Call", "Meeting"):
+            return "Call"
+        if t == "Email":
+            return "Email"
+        if t:
+            return t
+        return "Other"
+
+    n_weeks = len(WEEKLY_WINDOWS)
     # Bucket tasks by rep and week
-    by_rep_by_week: dict[str, list] = {name: [0]*7 for name in ALL_REPS}
+    by_rep_by_week: dict[str, list] = {name: [0]*n_weeks for name in ALL_REPS}
+    by_type: dict[str, int] = {}
+    by_type_by_rep: dict[str, dict[str, int]] = {name: {} for name in ALL_REPS}
+    by_type_by_week: list[dict[str, int]] = [{} for _ in WEEKLY_WINDOWS]
 
     for task in tasks:
         owner_name = (task.get("Owner") or {}).get("Name") or ""
@@ -531,11 +582,15 @@ def build_activity(sf, id_map: dict) -> dict:
             d = date.fromisoformat(act_date[:10])
         except Exception:
             continue
+        kind = _classify(task)
+        by_type[kind] = by_type.get(kind, 0) + 1
+        by_type_by_rep[owner_name][kind] = by_type_by_rep[owner_name].get(kind, 0) + 1
         for wi, (label, w_start, w_end) in enumerate(WEEKLY_WINDOWS):
             ws = date.fromisoformat(w_start)
             we = date.fromisoformat(w_end)
             if ws <= d <= we:
                 by_rep_by_week[owner_name][wi] += 1
+                by_type_by_week[wi][kind] = by_type_by_week[wi].get(kind, 0) + 1
                 break
 
     # Also try the SF activity report
@@ -592,10 +647,13 @@ def build_activity(sf, id_map: dict) -> dict:
         print(f"    Warning: opps by week failed: {e}", file=sys.stderr)
 
     return {
-        "weeks":              WEEK_LABELS,
-        "by_rep":             {k: v for k, v in by_rep_by_week.items()},
+        "weeks":               WEEK_LABELS,
+        "by_rep":              {k: v for k, v in by_rep_by_week.items()},
         "opps_by_rep_by_week": opps_by_rep_by_week,
-        "target_weekly":      TARGET_WEEKLY_ACTIVITY,
+        "target_weekly":       TARGET_WEEKLY_ACTIVITY,
+        "by_type":             by_type,
+        "by_type_by_rep":      by_type_by_rep,
+        "by_type_by_week":     by_type_by_week,
     }
 
 
@@ -751,6 +809,13 @@ def build_gong_calls() -> list:
 
 # ── Section 7: usage_signals ──────────────────────────────────────────────────
 
+# Accounts excluded from Usage Signals (known false positives / non-prospects)
+# Add account names here (case-insensitive match against account name)
+USAGE_SIGNALS_BLOCKLIST = {
+    "byteplus",
+    "不详",
+}
+
 def build_usage_signals(sf) -> dict:
     print("  [7/8] Pulling usage signals...")
 
@@ -807,14 +872,16 @@ def build_usage_signals(sf) -> dict:
             except Exception:
                 pass
 
-    # Pull open opp counts per account
+    # Pull open opp counts and closed-won revenue per account
     acct_ids = list(by_account.keys())
     open_opp_map: dict[str, int] = {}
+    is_customer_map: dict[str, bool] = {}
     if acct_ids:
         try:
             for i in range(0, len(acct_ids), 500):
                 chunk = acct_ids[i:i+500]
                 chunk_str = "', '".join(chunk)
+                # Open opps
                 rows = soql(sf, f"""
                     SELECT AccountId, COUNT(Id) cnt
                     FROM Opportunity
@@ -823,15 +890,33 @@ def build_usage_signals(sf) -> dict:
                     GROUP BY AccountId
                 """)
                 for r in rows:
-                    open_opp_map[r["AccountId"]] = r.get("expr0") or 0
+                    # simple_salesforce may return alias as 'cnt' or fall back to 'expr0'
+                    cnt = r.get("cnt") or r.get("expr0") or 0
+                    open_opp_map[r["AccountId"]] = cnt
+                # Closed-won revenue (identifies existing customers)
+                cw_rows = soql(sf, f"""
+                    SELECT AccountId, SUM(Amount) total
+                    FROM Opportunity
+                    WHERE IsWon = true
+                    AND AccountId IN ('{chunk_str}')
+                    GROUP BY AccountId
+                """)
+                for r in cw_rows:
+                    total = r.get("total") or r.get("expr0") or 0
+                    if total > 0:
+                        is_customer_map[r["AccountId"]] = True
         except Exception as e:
             print(f"    Warning: open opp count fetch failed: {e}", file=sys.stderr)
 
     # Compute signals
     all_accounts = []
     for acct_id, acc in by_account.items():
+        acct_lower = acc["account"].lower()
+        if any(blocked in acct_lower for blocked in USAGE_SIGNALS_BLOCKLIST):
+            continue
         signals = []
-        has_opp = open_opp_map.get(acct_id, 0) > 0
+        has_opp     = open_opp_map.get(acct_id, 0) > 0
+        is_customer = is_customer_map.get(acct_id, False)
 
         if acc["total_7d"] > 0 and acc["days_dark"] is not None and acc["days_dark"] <= 7:
             signals.append("new_activity")
@@ -839,7 +924,8 @@ def build_usage_signals(sf) -> dict:
             signals.append("growth")
         if acc["active_users_30d"] >= 3:
             signals.append("multi_user")
-        if acc["total_30d"] > 0 and not has_opp:
+        # Sales gap: meaningful usage (>100 calls) with no open opp and not an existing customer
+        if acc["total_30d"] > 100 and not has_opp and not is_customer:
             signals.append("sales_gap")
         if acc["days_dark"] is not None and acc["days_dark"] > 30 and acc["total_30d"] == 0:
             signals.append("risk")
@@ -848,6 +934,7 @@ def build_usage_signals(sf) -> dict:
 
         all_accounts.append({
             "account":         acc["account"],
+            "account_id":      acct_id,
             "tier":            acc["tier"],
             "total_7d":        acc["total_7d"],
             "total_30d":       acc["total_30d"],
@@ -855,6 +942,7 @@ def build_usage_signals(sf) -> dict:
             "days_dark":       acc["days_dark"],
             "signals":         signals,
             "has_open_opp":    has_opp,
+            "is_customer":     is_customer,
         })
 
     tier1 = [a for a in all_accounts if "TARGET" in a["tier"].upper() or a["tier"] == "1. TARGET ACCOUNT"]
@@ -920,7 +1008,7 @@ def build_paygo(sf, id_map: dict) -> dict:
     # ── Enrich deals with tier + close date via SOQL ──────────────────────────
     try:
         deal_rows = soql(sf, f"""
-            SELECT Name, Account.Name, Account.Account_Tier__c,
+            SELECT Name, Account.Id, Account.Name, Account.Account_Tier__c,
                    OwnerId, Amount, CloseDate
             FROM Opportunity
             WHERE IsWon = true
@@ -938,6 +1026,7 @@ def build_paygo(sf, id_map: dict) -> dict:
             sub     = name_parts[4] if len(name_parts) > 4 else ""
             deals.append({
                 "account":    acct.get("Name") or name_parts[0] if name_parts else "",
+                "account_id": acct.get("Id") or "",
                 "tier":       acct.get("Account_Tier__c") or "—",
                 "rep":        id_to_name.get(d.get("OwnerId") or "", ""),
                 "product":    product,
@@ -947,6 +1036,49 @@ def build_paygo(sf, id_map: dict) -> dict:
             })
     except Exception as e:
         print(f"    Warning: PayGo SOQL enrichment failed: {e}", file=sys.stderr)
+
+    # ── All-time PAGO deals (for usage health view) ───────────────────────────
+    try:
+        all_pago_rows = soql(sf, f"""
+            SELECT Name, Account.Id, Account.Name, Account.Account_Tier__c,
+                   OwnerId, Amount, CloseDate,
+                   Vol_Estimate_API_Calls_After_90_Day__c,
+                   Volume_Estimate_API_Monthly_Calls__c,
+                   Total_Potential_Volume__c
+            FROM Opportunity
+            WHERE IsWon = true
+            AND OwnerId IN ('{all_ids_str}')
+            AND Name LIKE '%PayGo%'
+            ORDER BY CloseDate DESC
+        """)
+        all_pago_deals = []
+        seen_acct_ids: set = set()
+        for d in all_pago_rows:
+            acct = (d.get("Account") or {})
+            acct_id = acct.get("Id") or ""
+            # Deduplicate by account — keep earliest close date
+            name_parts = [p.strip() for p in (d.get("Name") or "").split("|")]
+            sub = name_parts[4] if len(name_parts) > 4 else ""
+            if acct_id and acct_id in seen_acct_ids:
+                continue
+            if acct_id:
+                seen_acct_ids.add(acct_id)
+            all_pago_deals.append({
+                "account":        acct.get("Name") or "",
+                "account_id":     acct_id,
+                "tier":           acct.get("Account_Tier__c") or "—",
+                "rep":            id_to_name.get(d.get("OwnerId") or "", ""),
+                "sub":            sub,
+                "amount":         d.get("Amount") or 0,
+                "close_date":     (d.get("CloseDate") or "")[:10],
+                "month3_target":  d.get("Vol_Estimate_API_Calls_After_90_Day__c"),
+                "steady_state":   d.get("Volume_Estimate_API_Monthly_Calls__c"),
+                "volume_upside":  d.get("Total_Potential_Volume__c"),
+            })
+        print(f"    All-time PAGO deals: {len(all_pago_deals)} unique accounts")
+    except Exception as e:
+        print(f"    Warning: All-time PAGO query failed: {e}", file=sys.stderr)
+        all_pago_deals = []
 
     # ── Aggregate by team ─────────────────────────────────────────────────────
     nick_count = sum(count_by_rep.get(n, 0) for n in NICK_TEAM)
@@ -963,8 +1095,9 @@ def build_paygo(sf, id_map: dict) -> dict:
         "nick_team":  {"count": nick_count,              "target": PAYGO_TARGET_TEAM},
         "ivy_team":   {"count": ivy_count,               "target": PAYGO_TARGET_TEAM},
         "combined":   {"count": nick_count + ivy_count,  "target": PAYGO_TARGET_TOTAL},
-        "by_rep":     by_rep,
-        "deals":      deals,
+        "by_rep":          by_rep,
+        "deals":           deals,
+        "all_pago_deals":  all_pago_deals,
     }
 
 

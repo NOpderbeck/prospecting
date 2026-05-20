@@ -1171,6 +1171,39 @@ async def get_opp_detail(opp_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/pago-usage")
+async def get_pago_usage(ids: str = ""):
+    """Return 30d API call totals per account for PayGo health table.
+    ids: comma-separated Salesforce Account IDs"""
+    account_ids = [i.strip() for i in ids.split(",") if i.strip()]
+    if not account_ids:
+        return {}
+    try:
+        from simple_salesforce import Salesforce as _SF
+        sf = _SF(
+            username=os.environ["SF_USERNAME"],
+            password=os.environ["SF_PASSWORD"],
+            security_token=os.environ["SF_SECURITY_TOKEN"],
+        )
+        ids_str = "', '".join(account_ids)
+        result = sf.query_all(f"""
+            SELECT Account__c, API_Calls_Last_30_Days__c
+            FROM Product_User__c
+            WHERE Account__c IN ('{ids_str}')
+        """)
+        totals: dict[str, float] = {}
+        for r in result.get("records", []):
+            acct_id = r.get("Account__c") or ""
+            calls   = r.get("API_Calls_Last_30_Days__c") or 0
+            if acct_id:
+                totals[acct_id] = totals.get(acct_id, 0) + calls
+        return totals
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/refresh-forecast")
 async def refresh_forecast():
     """Run forecast_refresh.py and return status + elapsed time."""
