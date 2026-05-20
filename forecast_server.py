@@ -29,16 +29,22 @@ app = FastAPI(title="Forecast Dashboard")
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _gcs_client():
+    from google.cloud import storage as _gcs
+    return _gcs.Client()
+
+
+def _get_gcs_text(blob_name: str) -> str:
+    """Download a text blob from GCS."""
+    bucket = _gcs_client().bucket(GCS_BUCKET)
+    return bucket.blob(blob_name).download_as_text()
+
+
 def _get_forecast_data() -> dict:
     """Load forecast_data.json from GCS (if configured) or local disk."""
     if GCS_BUCKET:
         try:
-            from google.cloud import storage as _gcs
-            client = _gcs.Client()
-            bucket = client.bucket(GCS_BUCKET)
-            blob = bucket.blob("forecast_data.json")
-            data = json.loads(blob.download_as_text())
-            return data
+            return json.loads(_get_gcs_text("forecast_data.json"))
         except Exception as e:
             raise HTTPException(
                 status_code=503,
@@ -52,13 +58,30 @@ def _get_forecast_data() -> dict:
                 detail="forecast_data.json not found locally and GCS_BUCKET is not set.",
             )
         try:
-            with open(local_path) as f:
-                return json.load(f)
+            return json.loads(local_path.read_text())
         except Exception as e:
             raise HTTPException(
                 status_code=503,
                 detail=f"Could not read local forecast_data.json: {e}",
             )
+
+
+def _get_dashboard_html() -> str:
+    """Load forecast_review.html from GCS (if configured) or local disk.
+    Storing the HTML in GCS means UI updates deploy without a Docker rebuild."""
+    if GCS_BUCKET:
+        try:
+            return _get_gcs_text("forecast_review.html")
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not load dashboard HTML from GCS: {e}",
+            )
+    else:
+        local_path = BASE_DIR / "reports" / "forecast_review.html"
+        if not local_path.exists():
+            raise HTTPException(status_code=404, detail="forecast_review.html not found")
+        return local_path.read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -67,10 +90,7 @@ def _get_forecast_data() -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    html_path = BASE_DIR / "reports" / "forecast_review.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="forecast_review.html not found")
-    return HTMLResponse(content=html_path.read_text())
+    return HTMLResponse(content=_get_dashboard_html())
 
 
 @app.get("/forecast_data.json")

@@ -73,7 +73,19 @@ CBEOF
   --project="${PROJECT_ID}" \
   --quiet
 
-# ── 3. Deploy Cloud Run Service (web dashboard) ───────────────────────────────
+# ── 3. Upload dashboard HTML to GCS ──────────────────────────────────────────
+# HTML is served from GCS, not baked into the image — so UI changes deploy
+# with a simple gsutil cp rather than a full Docker rebuild.
+echo "▶ Uploading forecast_review.html to gs://${DATA_BUCKET}..."
+HTML_PATH="$(dirname "$0")/reports/forecast_review.html"
+if [[ ! -f "${HTML_PATH}" ]]; then
+  echo "  ERROR: ${HTML_PATH} not found — cannot upload dashboard HTML" >&2
+  exit 1
+fi
+gsutil -h "Content-Type:text/html" cp "${HTML_PATH}" "gs://${DATA_BUCKET}/forecast_review.html"
+echo "  Uploaded forecast_review.html"
+
+# ── 4. Deploy Cloud Run Service (web dashboard) ───────────────────────────────
 echo "▶ Deploying Cloud Run service '${SERVICE_NAME}'..."
 gcloud run deploy "${SERVICE_NAME}" \
   --image "${IMAGE}" \
@@ -89,7 +101,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
   --quiet
 
-# ── 4. Deploy Cloud Run Job (data refresh) ────────────────────────────────────
+# ── 5. Deploy Cloud Run Job (data refresh) ────────────────────────────────────
 echo "▶ Deploying Cloud Run job '${JOB_NAME}'..."
 gcloud run jobs deploy "${JOB_NAME}" \
   --image "${IMAGE}" \
@@ -104,7 +116,7 @@ gcloud run jobs deploy "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
   --quiet
 
-# ── 5. Cloud Scheduler ────────────────────────────────────────────────────────
+# ── 6. Cloud Scheduler ────────────────────────────────────────────────────────
 echo "▶ Setting up Cloud Scheduler (${SCHEDULE} ${TIMEZONE})..."
 
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${JOB_NAME}:run"
@@ -133,7 +145,7 @@ else
 fi
 echo "  Scheduled: ${SCHEDULE} ${TIMEZONE}"
 
-# ── 6. Grant run.invoker for IAP backend ──────────────────────────────────────
+# ── 7. Grant run.invoker for IAP backend ──────────────────────────────────────
 echo "▶ Granting roles/run.invoker to ${SA_EMAIL} on service..."
 gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
   --region="${REGION}" \
@@ -142,7 +154,7 @@ gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
   --quiet
 
-# ── 7. IAP instructions ───────────────────────────────────────────────────────
+# ── 8. IAP instructions ───────────────────────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  ⚠️  MANUAL STEP REQUIRED: Enable IAP"
@@ -171,8 +183,11 @@ echo "  Service URL : ${SERVICE_URL}"
 echo "  Data bucket : gs://${DATA_BUCKET}"
 echo "  Refresh runs: daily at 7:30 AM Pacific"
 echo ""
-echo "  Seed initial data:"
+echo "  Seed initial data (run once before first scheduled refresh):"
 echo "    gcloud run jobs execute ${JOB_NAME} --region ${REGION} --wait"
+echo ""
+echo "  Update dashboard HTML only (no Docker rebuild):"
+echo "    gsutil -h Content-Type:text/html cp reports/forecast_review.html gs://${DATA_BUCKET}/forecast_review.html"
 echo ""
 echo "  View service logs:"
 echo "    gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=${SERVICE_NAME}' --limit 50"
