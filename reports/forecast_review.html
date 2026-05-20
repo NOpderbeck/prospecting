@@ -671,10 +671,15 @@
 
 <!-- ===================== TAB 6: USAGE SIGNALS ===================== -->
 <div class="tab-content" id="tab-usage">
-  <!-- Top-level view toggle -->
-  <div style="display:flex;gap:8px;margin-bottom:14px">
+  <!-- Top-level view toggle + team filter -->
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
     <button id="usage-view-btn-pago"   class="qpb-toggle active" onclick="setUsageView('pago')">PayGo Accounts</button>
     <button id="usage-view-btn-target" class="qpb-toggle"        onclick="setUsageView('target')">Target Accounts</button>
+    <div style="margin-left:auto;display:flex;gap:6px" id="usage-team-btns">
+      <button class="qpb-toggle active" onclick="setUsageTeam('all',this)">All</button>
+      <button class="qpb-toggle"        onclick="setUsageTeam('nick',this)">Team Nick</button>
+      <button class="qpb-toggle"        onclick="setUsageTeam('ivy',this)">Team Ivy</button>
+    </div>
   </div>
 
   <!-- ── Target Accounts view ── -->
@@ -2353,6 +2358,15 @@ function renderUsage() {
 
 // ── Usage view toggle (Target Accounts / PAGO Accounts) ──────────────────────
 let _usageView = 'pago';
+let _usageTeam = 'all';  // 'all' | 'nick' | 'ivy'
+
+function setUsageTeam(team, btn) {
+  _usageTeam = team;
+  document.querySelectorAll('#usage-team-btns .qpb-toggle').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (_usageView === 'target') renderUsageTable();
+  else renderPAGOTable();
+}
 
 function setUsageView(view) {
   _usageView = view;
@@ -2514,8 +2528,13 @@ function renderPAGOTable() {
 
   const today = new Date();
 
+  // Team filter
+  const teamDeals = _usageTeam === 'all' ? allDeals
+    : _usageTeam === 'nick' ? allDeals.filter(d => NICK_TEAM.includes(d.rep))
+    : allDeals.filter(d => IVY_TEAM.includes(d.rep));
+
   // Enrich with computed fields
-  const enriched = allDeals.map(d => {
+  const enriched = teamDeals.map(d => {
     const closeDate = d.close_date ? new Date(d.close_date) : null;
     const months    = closeDate ? (today - closeDate) / (1000 * 60 * 60 * 24 * 30.44) : null;
     const usage30d  = d.account_id ? (_pagoUsage[d.account_id] ?? null) : null;
@@ -2668,8 +2687,11 @@ function renderUsageTable() {
 
   const rawRows = us[currentUsageTab] || [];
   const custFiltered = _usageShowCustomers ? rawRows : rawRows.filter(r => !r.is_customer);
+  const teamFiltered = _usageTeam === 'all' ? custFiltered
+    : _usageTeam === 'nick' ? custFiltered.filter(r => NICK_TEAM.includes(r.owner))
+    : custFiltered.filter(r => IVY_TEAM.includes(r.owner));
   // Signal filter: if any active, keep rows that match at least one selected signal
-  const rows = _usageSignalFilters.size === 0 ? custFiltered : custFiltered.filter(r => {
+  const rows = _usageSignalFilters.size === 0 ? teamFiltered : teamFiltered.filter(r => {
     const sigs = r.signals?.length ? r.signals : ['no_signal'];
     return sigs.some(s => _usageSignalFilters.has(s));
   });
