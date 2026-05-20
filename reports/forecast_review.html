@@ -1935,7 +1935,7 @@ function renderVelocityChart(canvasId, velocityData) {
         // Primary label: "N entered"
         ctx.textAlign   = 'center';
         ctx.font        = '600 10px "JetBrains Mono", monospace';
-        ctx.fillStyle   = 'rgba(200,220,240,0.85)';
+        ctx.fillStyle   = '#334155';
         ctx.fillText(`${entered} entered`, bar.x, topY - (isTerminal ? 0 : 14));
 
         if (!isTerminal) {
@@ -2899,6 +2899,214 @@ async function openOppModal(oppId, accountName) {
     body.innerHTML = `<div class="opp-modal-loading" style="color:var(--red)">Error: ${e.message}</div>`;
   }
 }
+
+
+// ===================== TAB VISIBILITY (easter egg) =====================
+const TAB_LABELS = {
+  'tab-snapshot': 'Forecast',
+  'tab-pipeline': 'Pipeline',
+  'tab-paygo':    'PayGo',
+  'tab-changes':  'Deal Changes',
+  'tab-activity': 'AE Activity',
+  'tab-usage':    'Usage Signals',
+  'tab-sources':  'Opp Sources',
+};
+const LS_TAB_VIS = 'forecast_tab_visibility';
+
+function _loadTabVisibility() {
+  try { return JSON.parse(localStorage.getItem(LS_TAB_VIS)) || {}; }
+  catch { return {}; }
+}
+
+function applyTabVisibility() {
+  const hidden = _loadTabVisibility();
+  VALID_TABS.forEach(id => {
+    const btn = document.querySelector(`.tab-btn[data-tab="${id}"]`);
+    if (!btn) return;
+    const isHidden = hidden[id] === false;
+    btn.style.display = isHidden ? 'none' : '';
+  });
+  // If active tab is now hidden, jump to first visible tab
+  const activeBtn = document.querySelector('.tab-btn.active');
+  if (activeBtn && activeBtn.style.display === 'none') {
+    const first = VALID_TABS.find(id => hidden[id] !== false);
+    if (first) showTab(first);
+  }
+}
+
+function openTabModal() {
+  document.getElementById('tab-vis-modal').style.display = 'flex';
+  const hidden = _loadTabVisibility();
+  VALID_TABS.forEach(id => {
+    const cb = document.getElementById('tvcb-' + id);
+    if (cb) cb.checked = hidden[id] !== false;
+  });
+}
+
+function closeTabModal() {
+  document.getElementById('tab-vis-modal').style.display = 'none';
+}
+
+function saveTabVisibility() {
+  const hidden = {};
+  VALID_TABS.forEach(id => {
+    const cb = document.getElementById('tvcb-' + id);
+    if (cb) hidden[id] = cb.checked ? true : false;
+  });
+  localStorage.setItem(LS_TAB_VIS, JSON.stringify(hidden));
+  applyTabVisibility();
+  closeTabModal();
+}
+
+// Apply on load (after a tick so tabs are rendered)
+setTimeout(applyTabVisibility, 0);
 </script>
+
+<!-- Easter egg footer -->
+<div id="tab-vis-trigger" onclick="openTabModal()" title="Customize tabs">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>
+</div>
+
+<!-- Tab visibility modal -->
+<div id="tab-vis-modal" onclick="if(event.target===this)closeTabModal()">
+  <div id="tab-vis-box">
+    <div id="tab-vis-header">
+      <span>Customize Tabs</span>
+      <button onclick="closeTabModal()">✕</button>
+    </div>
+    <div id="tab-vis-body">
+      <p id="tab-vis-hint">Choose which tabs to show. Hidden tabs won't appear in the nav.</p>
+      <div id="tab-vis-list">
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-snapshot"> <span>Forecast</span></label>
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-pipeline"> <span>Pipeline</span></label>
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-paygo">    <span>PayGo</span></label>
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-changes">  <span>Deal Changes</span></label>
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-activity"> <span>AE Activity</span></label>
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-usage">    <span>Usage Signals</span></label>
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-sources">  <span>Opp Sources</span></label>
+      </div>
+    </div>
+    <div id="tab-vis-footer">
+      <button id="tab-vis-cancel" onclick="closeTabModal()">Cancel</button>
+      <button id="tab-vis-save"   onclick="saveTabVisibility()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<style>
+#tab-vis-trigger {
+  position: fixed;
+  bottom: 14px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--border-hi);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: color 0.2s, background 0.2s;
+  z-index: 900;
+}
+#tab-vis-trigger:hover {
+  color: var(--text-dim);
+  background: var(--border);
+}
+#tab-vis-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+#tab-vis-box {
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-top: 3px solid var(--accent);
+  border-radius: 4px;
+  width: 280px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+#tab-vis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+#tab-vis-header button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+#tab-vis-header button:hover { color: var(--text-hi); }
+#tab-vis-body { padding: 14px 16px 10px; }
+#tab-vis-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+#tab-vis-list { display: flex; flex-direction: column; gap: 10px; }
+.tvcb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+.tvcb-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.tvcb-row:hover span { color: var(--text-hi); }
+#tab-vis-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+#tab-vis-cancel {
+  background: none;
+  border: 1px solid var(--border-hi);
+  color: var(--text-dim);
+  padding: 5px 14px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+#tab-vis-cancel:hover { color: var(--text); border-color: var(--text-dim); }
+#tab-vis-save {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 3px;
+  cursor: pointer;
+}
+#tab-vis-save:hover { opacity: 0.88; }
+</style>
 </body>
 </html>
