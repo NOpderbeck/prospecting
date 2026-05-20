@@ -908,6 +908,20 @@ def build_usage_signals(sf) -> dict:
         except Exception as e:
             print(f"    Warning: open opp count fetch failed: {e}", file=sys.stderr)
 
+    # Pull account owner names
+    owner_map: dict[str, str] = {}
+    if acct_ids:
+        try:
+            for i in range(0, len(acct_ids), 500):
+                chunk_str = "', '".join(acct_ids[i:i+500])
+                owner_rows = soql(sf, f"""
+                    SELECT Id, Owner.Name FROM Account WHERE Id IN ('{chunk_str}')
+                """)
+                for r in owner_rows:
+                    owner_map[r["Id"]] = (r.get("Owner") or {}).get("Name") or ""
+        except Exception as e:
+            print(f"    Warning: account owner fetch failed: {e}", file=sys.stderr)
+
     # Compute signals
     all_accounts = []
     for acct_id, acc in by_account.items():
@@ -935,6 +949,7 @@ def build_usage_signals(sf) -> dict:
         all_accounts.append({
             "account":         acc["account"],
             "account_id":      acct_id,
+            "owner":           owner_map.get(acct_id, ""),
             "tier":            acc["tier"],
             "total_7d":        acc["total_7d"],
             "total_30d":       acc["total_30d"],

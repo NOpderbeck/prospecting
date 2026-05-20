@@ -476,8 +476,8 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div class="card-title" style="margin-bottom:0">CQ Deal List <span id="cq-deal-count" style="font-size:11px;font-weight:400;color:var(--text-dim);margin-left:6px"></span></div>
       <div style="display:flex;gap:6px;align-items:center" id="cq-filter-btns">
-        <button class="qpb-toggle active" onclick="setCQFilter('all',this)">All</button>
-        <button class="qpb-toggle" onclick="setCQFilter('open',this)">Open</button>
+        <button class="qpb-toggle" onclick="setCQFilter('all',this)">All</button>
+        <button class="qpb-toggle active" onclick="setCQFilter('open',this)">Open</button>
         <button class="qpb-toggle" onclick="setCQFilter('won',this)">Closed Won</button>
         <button class="qpb-toggle" onclick="toggleCQLost(this)" id="cq-lost-btn" style="opacity:0.4">Closed Lost</button>
       </div>
@@ -626,8 +626,8 @@
   </div>
   <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px" id="act-range-btns">
     <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:0.06em;margin-right:4px">PERIOD</span>
-    <button class="qpb-toggle active" onclick="setActRange('30d',this)">Last 30d</button>
-    <button class="qpb-toggle" onclick="setActRange('cq',this)">CQ</button>
+    <button class="qpb-toggle" onclick="setActRange('30d',this)">Last 30d</button>
+    <button class="qpb-toggle active" onclick="setActRange('cq',this)">CQ</button>
     <button class="qpb-toggle" onclick="setActRange('all',this)">All Time</button>
   </div>
   <div class="grid-2" style="margin-bottom:16px">
@@ -1081,11 +1081,11 @@ function toggleRepTable() {
 // Alias so deal-list sort uses the same stage names as the rest of the app
 const STAGE_ORDER_FULL = STAGE_ORDER;
 let _cqPageSize = 25;
-let _cqFilter   = 'all';
+let _cqFilter   = 'open';
 let _cqShowLost = false;
 let _cqPage     = 0;
-let _cqSortKey = 'amount';   // default primary sort
-let _cqSortDir = -1;          // -1 = desc, 1 = asc
+let _cqSortKey = 'stage';    // default: Stage desc, then Amount desc
+let _cqSortDir = 1;          // for stage formula (b-a)*dir: dir=1 → late stages first
 
 const CQ_COLS = [
   { key: 'account',    label: 'Account',    align: 'left'  },
@@ -2067,7 +2067,7 @@ function renderStackedActivityChart() {
 }
 
 // ── Activity time-range filter ───────────────────────────────────────────────
-let _actRange = '30d';
+let _actRange = 'cq';
 
 function setActRange(range, btn) {
   _actRange = range;
@@ -2720,10 +2720,11 @@ function renderUsageTable() {
     const badges = signals.map(s =>
       `<span class="signal-badge sig-${s}">${SIGNAL_LABELS[s]||s}</span>`
     ).join('');
+    const ownerSub = r.owner ? `<div style="font-size:10px;color:#64748b;margin-top:2px;font-weight:400">${r.owner}</div>` : '';
     return `<tr>
       <td class="td-truncate"><strong>${r.account_id
         ? `<a href="https://ydc.lightning.force.com/lightning/r/Account/${r.account_id}/view" target="_blank" style="color:var(--text-hi);text-decoration:none;border-bottom:1px solid var(--border-hi)" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-hi)'">${r.account}</a>`
-        : r.account}</strong></td>
+        : r.account}</strong>${ownerSub}</td>
       <td>${r.tier||''}</td>
       <td>${badges || '<span class="signal-badge sig-no_signal">No Signal</span>'}</td>
       <td>${r.total_7d != null ? Math.round(r.total_7d).toLocaleString() : '-'}</td>
