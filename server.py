@@ -76,7 +76,15 @@ BASE_DIR = Path(__file__).parent
 REPORTS_DIR = BASE_DIR / "reports"
 DB_PATH = BASE_DIR / "prospecting.db"
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="P0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8003"],
+    allow_methods=["POST"],
+    allow_headers=["*"],
+)
 db_module.init_db(DB_PATH)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
@@ -907,6 +915,104 @@ async def ask_save(request: Request, conv_id: str = Form("")):
     )
 
 
+@app.get("/deep-research", response_class=HTMLResponse)
+async def deep_research_page(request: Request):
+    return templates.TemplateResponse("deep_research.html", {
+        "request": request,
+        "active": "deep_research",
+    })
+
+
+@app.post("/deep-research/query", response_class=HTMLResponse)
+async def deep_research_query(
+    request: Request,
+    query: str = Form(...),
+    research_effort: str = Form("lite"),
+):
+    api_key = os.getenv("YOUCOM_API_KEY", "")
+    if not api_key:
+        return HTMLResponse(
+            '<div class="dr-error">⚠ YOUCOM_API_KEY is not set.</div>'
+        )
+    if not query.strip():
+        return HTMLResponse(
+            '<div class="dr-error">⚠ Please enter a query.</div>'
+        )
+
+    valid_efforts = {"lite", "standard", "deep", "exhaustive"}
+    if research_effort not in valid_efforts:
+        research_effort = "lite"
+
+    def _call_research_api():
+        resp = _requests.post(
+            "https://api.you.com/v1/research",
+            json={"input": query.strip(), "research_effort": research_effort},
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    try:
+        data = await asyncio.to_thread(_call_research_api)
+    except Exception as exc:
+        return HTMLResponse(
+            f'<div class="dr-error">⚠ Research API error: {exc}</div>'
+        )
+
+    output = data.get("output", {})
+    answer = output.get("content", "") or data.get("answer", "") or data.get("response", "") or ""
+    sources = (
+        output.get("sources")
+        or data.get("search_results")
+        or data.get("sources")
+        or data.get("references")
+        or []
+    )
+
+    # Render answer markdown → HTML
+    answer_html = render_markdown(answer) if answer else "<p><em>No answer returned.</em></p>"
+
+    # Build sources HTML
+    sources_html = ""
+    if sources:
+        items = []
+        for i, s in enumerate(sources, 1):
+            title = s.get("title") or s.get("name") or s.get("url", "Source")
+            url   = s.get("url") or s.get("link") or "#"
+            snippets = s.get("snippets") or []
+            snippet = snippets[0] if snippets else (s.get("snippet") or s.get("description") or "")
+            items.append(
+                f'<li class="dr-source-item">'
+                f'<span class="dr-source-num">{i}</span>'
+                f'<div>'
+                f'<a href="{url}" target="_blank" rel="noopener" class="dr-source-link">{title}</a>'
+                + (f'<p class="dr-source-snippet">{snippet}</p>' if snippet else "")
+                + f"</div></li>"
+            )
+        sources_html = (
+            '<div class="dr-sources">'
+            '<h3 class="dr-sources-title">Sources</h3>'
+            '<ol class="dr-source-list">' + "".join(items) + "</ol>"
+            "</div>"
+        )
+
+    effort_label = {"lite": "Lite", "standard": "Standard", "deep": "Deep", "exhaustive": "Exhaustive"}.get(
+        research_effort, research_effort.title()
+    )
+
+    return HTMLResponse(
+        f'<div class="dr-results" id="dr-results">'
+        f'<div class="dr-results-meta">'
+        f'<span class="dr-query-echo">"{query}"</span>'
+        f'<span class="dr-effort-badge">{effort_label}</span>'
+        f"</div>"
+        f'<div class="dr-answer">{answer_html}</div>'
+        + sources_html
+        + "</div>"
+    )
+
+
 @app.get("/run/stream")
 async def run_stream(
     company: str = "",
@@ -1015,6 +1121,78 @@ async def run_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Forecast refresh endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/api/opp/{opp_id}")
+async def get_opp_detail(opp_id: str):
+    """Return volume / usage estimate fields for a single Opportunity."""
+    try:
+        from simple_salesforce import Salesforce as _SF
+        sf = _SF(
+            username=os.environ["SF_USERNAME"],
+            password=os.environ["SF_PASSWORD"],
+            security_token=os.environ["SF_SECURITY_TOKEN"],
+        )
+        fields = (
+            "Id, Name, StageName, Amount, CloseDate, Owner.Name, "
+            "Primary_API_Endpoint__c, "
+            "Vol_Estimate_API_Calls_After_90_Day__c, "
+            "Volume_Estimate_API_Monthly_Calls__c, "
+            "Total_Potential_Volume__c, "
+            "Estimated_Annualized_Revenue_Potential__c, "
+            "Blended_Estimated_Cost_API_Call_CPM__c"
+        )
+        result = sf.query(f"SELECT {fields} FROM Opportunity WHERE Id = '{opp_id}' LIMIT 1")
+        records = result.get("records", [])
+        if not records:
+            raise HTTPException(status_code=404, detail="Opportunity not found")
+        r = records[0]
+        return {
+            "opp_id":        r["Id"],
+            "opp_name":      r["Name"],
+            "stage":         r["StageName"],
+            "amount":        r["Amount"],
+            "close_date":    r["CloseDate"],
+            "owner":         (r.get("Owner") or {}).get("Name"),
+            "primary_endpoint":     r.get("Primary_API_Endpoint__c"),
+            "api_calls_month3":     r.get("Vol_Estimate_API_Calls_After_90_Day__c"),
+            "api_calls_steady":     r.get("Volume_Estimate_API_Monthly_Calls__c"),
+            "volume_upside":        r.get("Total_Potential_Volume__c"),
+            "annual_rev_potential": r.get("Estimated_Annualized_Revenue_Potential__c"),
+            "blended_cpm":          r.get("Blended_Estimated_Cost_API_Call_CPM__c"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/refresh-forecast")
+async def refresh_forecast():
+    """Run forecast_refresh.py and return status + elapsed time."""
+    import time as _time
+    script = BASE_DIR / "forecast_refresh.py"
+    if not script.exists():
+        raise HTTPException(status_code=404, detail="forecast_refresh.py not found")
+    t0 = _time.monotonic()
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [sys.executable, str(script)],
+            capture_output=True, text=True, timeout=120,
+        )
+        elapsed = round(_time.monotonic() - t0, 1)
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr[-500:], "elapsed": elapsed}
+        return {"ok": True, "elapsed": elapsed}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Script timed out after 120s", "elapsed": 120}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "elapsed": 0}
 
 
 # ---------------------------------------------------------------------------

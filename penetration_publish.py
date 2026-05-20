@@ -27,6 +27,9 @@ GOOGLE_SCOPES     = ["https://www.googleapis.com/auth/drive"]
 TABLE_HEADERS    = ["Account", "Classification", "Score", "Owner", "API (30d)", "Last API Call", "Last Touch"]
 AT_RISK_DAYS     = 60   # accounts whose last API call is older than this drop out of At Risk
 
+# Accounts excluded from Inbound Only / uncovered-demand alerts (known false positives)
+ALERT_BLOCKLIST  = {"byteplus"}
+
 
 # ── Google auth ────────────────────────────────────────────────────────────────
 
@@ -341,7 +344,8 @@ def build_google_doc(docs_svc, doc_id: str, results: list, date_str: str):
     white  = [r for r in prospects if r['cls'] == 'White Space']
     blue   = sorted([r for r in prospects if r['pri'] == 'blue'],   key=lambda x: -x['pen'])
 
-    inbound_only  = [r for r in prospects if r['cls'] == 'Inbound Only']
+    inbound_only  = [r for r in prospects if r['cls'] == 'Inbound Only'
+                     and r['name'].lower() not in ALERT_BLOCKLIST]
     inbound_names = ', '.join(f"{r['name']} ({r['owner']})" for r in inbound_only)
 
     def S(*args): return list(args)   # segment shorthand
@@ -745,7 +749,8 @@ def build_slack_message(results: list, date_str: str, doc_url: str, token: str =
     usage_n   = sum(1 for r in prospects if r["usage_present"])
     usage_pct = usage_n / n_pros * 100 if n_pros else 0
 
-    inbound = [r for r in prospects if r["cls"] == "Inbound Only"]
+    inbound = [r for r in prospects if r["cls"] == "Inbound Only"
+               and r["name"].lower() not in ALERT_BLOCKLIST]
     white   = [r for r in prospects if r["cls"] == "White Space"]
     inbound_links = ", ".join(
         f"<{SF_BASE}{r['id']}|{r['name']}> ({owner_mention(token, r.get('owner_email',''), r['owner'])})"

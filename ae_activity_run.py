@@ -187,8 +187,17 @@ def fetch_gong_call_counts(from_dt: datetime, to_dt: datetime) -> dict[str, int]
         for call in data.get("calls", []):
             dur = call.get("duration") or 0
             if dur >= MIN_CONV_SECONDS:
+                uids: set[str] = set()
+                # Primary host
                 uid = call.get("primaryUserId")
                 if uid:
+                    uids.add(uid)
+                # All internal participants (parties with a userId are internal users)
+                for party in call.get("parties", []):
+                    party_uid = party.get("userId")
+                    if party_uid:
+                        uids.add(party_uid)
+                for uid in uids:
                     counts[uid] += 1
 
         cursor = data.get("records", {}).get("cursor")
@@ -205,7 +214,7 @@ def _classify_task(task: dict) -> dict:
     subj = task.get("Subject") or ""
     return {
         "email":    t == "Email",
-        "call":     t == "Call",
+        "call":     t in ("Call", "Meeting"),
         "gong_out": "[Gong Out]" in subj or "[Gong In]" in subj,
         "apollo":   "[Apollo" in subj,
     }
@@ -391,7 +400,12 @@ def build_message(ae_rows: list[dict], benchmarks: dict, date_str: str, days: in
     return "\n".join(lines)
 
 
-def post_to_slack(bot_token: str, text: str):
+def post_to_slack(bot_token: str, text: str, dry_run: bool = False):
+    if dry_run:
+        print("\n── DRY RUN: Slack message (not posted) ──────────────────────────")
+        print(text)
+        print("─────────────────────────────────────────────────────────────────\n")
+        return
     import requests
     resp = requests.post(
         "https://slack.com/api/chat.postMessage",
@@ -414,6 +428,8 @@ def main():
                         help="Report date string, e.g. 'April 21, 2026' (default: today)")
     parser.add_argument("--days", type=int, default=7,
                         help="Lookback window in days (default: 7)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print Slack message to stdout; do not post to channel")
     args = parser.parse_args()
 
     load_dotenv(ENV_PATH)
@@ -518,7 +534,9 @@ def main():
     print(message[:600])
     print("---")
 
-    if bot_token:
+    if args.dry_run:
+        post_to_slack(bot_token, message, dry_run=True)
+    elif bot_token:
         post_to_slack(bot_token, message)
     else:
         print("⚠️  No SLACK_BOT_TOKEN — skipping Slack post", file=sys.stderr)

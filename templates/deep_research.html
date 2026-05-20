@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+{% block title %}Deep Research — Sales Toolkit{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Page layout ───────────────────────────────────────────── */
+  .dr-page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 48px 0 80px;
+  }
+
+  .dr-heading {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .dr-heading h2 {
+    font-size: 26px;
+    font-weight: 700;
+    margin: 0 0 6px;
+  }
+  .dr-heading p {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0;
+  }
+
+  /* ── Search form ────────────────────────────────────────────── */
+  .dr-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .dr-input-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .dr-textarea {
+    flex: 1;
+    min-height: 64px;
+    max-height: 200px;
+    padding: 14px 16px;
+    font-size: 15px;
+    font-family: inherit;
+    line-height: 1.5;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--card-bg);
+    color: var(--text);
+    resize: vertical;
+    transition: border-color 0.15s;
+    outline: none;
+  }
+  .dr-textarea:focus {
+    border-color: var(--accent, #4A90D9);
+    box-shadow: 0 0 0 3px rgba(74,144,217,0.12);
+  }
+  .dr-textarea::placeholder {
+    color: var(--muted);
+  }
+
+  .dr-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .dr-effort-label {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .dr-effort-select {
+    padding: 7px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-bg);
+    color: var(--text);
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .dr-effort-select:focus {
+    border-color: var(--accent, #4A90D9);
+  }
+
+  .dr-submit-btn {
+    padding: 9px 22px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    background: var(--accent, #4A90D9);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .dr-submit-btn:hover { opacity: 0.88; }
+  .dr-submit-btn:active { transform: scale(0.97); }
+  .dr-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .dr-clear-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    border: 1.5px solid var(--border);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .dr-clear-btn:hover {
+    color: var(--text);
+    border-color: var(--muted);
+  }
+
+  /* ── Loading indicator ──────────────────────────────────────── */
+  #dr-loading {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  #dr-loading.htmx-request { display: flex; }
+
+  .dr-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent, #4A90D9);
+    border-radius: 50%;
+    animation: dr-spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes dr-spin { to { transform: rotate(360deg); } }
+
+  /* ── Results ────────────────────────────────────────────────── */
+  .dr-results {
+    margin-top: 36px;
+    animation: dr-fadein 0.3s ease;
+  }
+  @keyframes dr-fadein { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+
+  .dr-results-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .dr-query-echo {
+    font-size: 13px;
+    color: var(--muted);
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 560px;
+  }
+  .dr-effort-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--accent-subtle, rgba(74,144,217,0.12));
+    color: var(--accent, #4A90D9);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .dr-answer {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    font-size: 14.5px;
+    line-height: 1.75;
+    color: var(--text);
+  }
+  .dr-answer h1, .dr-answer h2, .dr-answer h3 {
+    margin-top: 1.4em;
+    margin-bottom: 0.5em;
+  }
+  .dr-answer h1:first-child,
+  .dr-answer h2:first-child,
+  .dr-answer h3:first-child { margin-top: 0; }
+  .dr-answer p { margin: 0 0 0.9em; }
+  .dr-answer p:last-child { margin-bottom: 0; }
+  .dr-answer ul, .dr-answer ol {
+    padding-left: 1.4em;
+    margin: 0.4em 0 0.9em;
+  }
+  .dr-answer li { margin-bottom: 0.3em; }
+  .dr-answer a { color: var(--accent, #4A90D9); }
+  .dr-answer code {
+    background: var(--code-bg, rgba(0,0,0,0.06));
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .dr-answer table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.8em 0;
+    font-size: 13.5px;
+  }
+  .dr-answer th, .dr-answer td {
+    border: 1px solid var(--border);
+    padding: 7px 12px;
+    text-align: left;
+  }
+  .dr-answer th {
+    background: var(--row-hover, rgba(0,0,0,0.03));
+    font-weight: 600;
+  }
+
+  /* ── Sources ────────────────────────────────────────────────── */
+  .dr-sources {
+    margin-top: 24px;
+  }
+  .dr-sources-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  .dr-source-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .dr-source-item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 14px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .dr-source-num {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent-subtle, rgba(74,144,217,0.12));
+    color: var(--accent, #4A90D9);
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+  }
+  .dr-source-link {
+    font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
+    word-break: break-word;
+  }
+  .dr-source-link:hover { color: var(--accent, #4A90D9); text-decoration: underline; }
+  .dr-source-snippet {
+    color: var(--muted);
+    font-size: 12px;
+    margin: 3px 0 0;
+    line-height: 1.5;
+  }
+
+  /* ── Error ──────────────────────────────────────────────────── */
+  .dr-error {
+    margin-top: 24px;
+    padding: 14px 18px;
+    border-radius: 8px;
+    background: rgba(220,53,69,0.07);
+    border: 1px solid rgba(220,53,69,0.2);
+    color: var(--red, #dc3545);
+    font-size: 14px;
+  }
+</style>
+
+<div class="dr-page">
+  <div class="dr-heading">
+    <h2>🔬 Deep Research</h2>
+    <p>Powered by You.com Research API &mdash; get sourced, synthesized answers</p>
+  </div>
+
+  <form class="dr-form"
+        hx-post="/deep-research/query"
+        hx-target="#dr-result-area"
+        hx-swap="innerHTML"
+        hx-indicator="#dr-loading"
+        hx-on::before-request="document.getElementById('dr-results')?.remove()">
+
+    <div class="dr-input-row">
+      <textarea
+        class="dr-textarea"
+        name="query"
+        id="dr-query"
+        placeholder="Ask anything — company research, market trends, technical deep-dives…"
+        rows="3"
+        required
+        autofocus></textarea>
+    </div>
+
+    <div class="dr-controls">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <label class="dr-effort-label" for="dr-effort">Research depth:</label>
+        <select class="dr-effort-select" name="research_effort" id="dr-effort">
+          <option value="lite" selected>Lite — fastest</option>
+          <option value="standard">Standard</option>
+          <option value="deep">Deep</option>
+          <option value="exhaustive">Exhaustive — most thorough</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="dr-clear-btn" onclick="clearResearch()">Clear</button>
+        <button type="submit" class="dr-submit-btn">Search</button>
+      </div>
+    </div>
+  </form>
+
+  <!-- Loading indicator -->
+  <div id="dr-loading">
+    <div class="dr-spinner"></div>
+    <span id="dr-loading-msg">Researching…</span>
+  </div>
+
+  <!-- Results land here -->
+  <div id="dr-result-area"></div>
+</div>
+
+<script>
+function clearResearch() {
+  document.getElementById('dr-query').value = '';
+  document.getElementById('dr-result-area').innerHTML = '';
+  document.getElementById('dr-query').focus();
+}
+
+// Update loading message based on effort level
+document.getElementById('dr-effort').addEventListener('change', function() {
+  var msgs = { lite: 'Researching…', standard: 'Researching — this may take a moment…', deep: 'Running deep research — this may take 30–60 seconds…', exhaustive: 'Running exhaustive research — this may take up to 2 minutes…' };
+  document.getElementById('dr-loading-msg').textContent = msgs[this.value] || 'Researching…';
+});
+
+// Submit on Ctrl+Enter / Cmd+Enter in textarea
+document.getElementById('dr-query').addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    this.closest('form').requestSubmit();
+  }
+});
+</script>
+{% endblock %}

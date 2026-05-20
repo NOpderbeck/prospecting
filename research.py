@@ -106,6 +106,7 @@ def search_youcom(query: str, api_key: str, verbose: bool = False) -> dict:
     headers = {
         "X-API-Key": api_key,
         "Accept": "application/json",
+        "Accept-Encoding": "identity",
     }
     params = {
         "query": query,
