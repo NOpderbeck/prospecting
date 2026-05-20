@@ -9,19 +9,19 @@
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
 
   :root {
-    --bg:        #152235;
-    --surface:   #0d1825;
-    --card:      #08111c;
-    --border:    #1a3050;
-    --border-hi: #1e3a60;
-    --accent:    #00c8e8;
-    --accent-dim:#0e7a93;
-    --text-hi:   #f8fafc;
-    --text:      #b8cfe4;
-    --text-dim:  #5a7a96;
-    --green:     #00e5a0;
-    --amber:     #f59e0b;
-    --red:       #f05252;
+    --bg:        #f1f5f9;
+    --surface:   #ffffff;
+    --card:      #f8fafc;
+    --border:    #e2e8f0;
+    --border-hi: #cbd5e1;
+    --accent:    #0284c7;
+    --accent-dim:#7dd3fc;
+    --text-hi:   #0f172a;
+    --text:      #334155;
+    --text-dim:  #94a3b8;
+    --green:     #059669;
+    --amber:     #d97706;
+    --red:       #dc2626;
     --mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
   }
 
@@ -114,8 +114,8 @@
     display: inline-block; font-family: var(--mono); font-size: 10px; font-weight: 700;
     padding: 2px 8px; border-radius: 0; margin-top: 7px; letter-spacing: 0.04em;
   }
-  .delta-up   { background: rgba(0,229,160,0.1); color: var(--green); border: 1px solid rgba(0,229,160,0.25); }
-  .delta-down { background: rgba(240,82,82,0.1); color: var(--red);   border: 1px solid rgba(240,82,82,0.25); }
+  .delta-up   { background: rgba(5,150,105,0.08); color: var(--green); border: 1px solid rgba(5,150,105,0.25); }
+  .delta-down { background: rgba(220,38,38,0.08); color: var(--red);   border: 1px solid rgba(220,38,38,0.25); }
 
   /* Tables */
   .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -130,8 +130,8 @@
     vertical-align: middle; color: var(--text);
   }
   .data-table tr:last-child td { border-bottom: none; }
-  .data-table tr:hover td { background: rgba(0,200,232,0.03); color: var(--text-hi); }
-  .team-divider td { border-top: 1px solid rgba(0,200,232,0.2); }
+  .data-table tr:hover td { background: rgba(2,132,199,0.06); color: var(--text-hi); }
+  .team-divider td { border-top: 1px solid rgba(2,132,199,0.2); }
   .td-truncate { max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Progress bar (table) */
@@ -268,17 +268,17 @@
     padding: 2px 7px; border-radius: 0; margin: 2px;
     text-transform: uppercase; letter-spacing: 0.04em;
   }
-  .sig-new_activity { background: rgba(0,229,160,0.1);  color: var(--green); border: 1px solid rgba(0,229,160,0.25); }
-  .sig-growth       { background: rgba(0,200,232,0.1);  color: var(--accent); border: 1px solid rgba(0,200,232,0.25); }
-  .sig-multi_user   { background: rgba(167,139,250,0.1); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25); }
-  .sig-sales_gap    { background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
-  .sig-risk         { background: rgba(240,82,82,0.1);  color: var(--red);   border: 1px solid rgba(240,82,82,0.25); }
+  .sig-new_activity { background: rgba(5,150,105,0.1);   color: var(--green); border: 1px solid rgba(5,150,105,0.3); }
+  .sig-growth       { background: rgba(2,132,199,0.1);   color: var(--accent); border: 1px solid rgba(2,132,199,0.3); }
+  .sig-multi_user   { background: rgba(124,58,237,0.08); color: #7c3aed; border: 1px solid rgba(124,58,237,0.25); }
+  .sig-sales_gap    { background: rgba(217,119,6,0.1);   color: var(--amber); border: 1px solid rgba(217,119,6,0.3); }
+  .sig-risk         { background: rgba(220,38,38,0.08);  color: var(--red);   border: 1px solid rgba(220,38,38,0.25); }
   .sig-no_signal    { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
 
   /* PAGO usage progress bar */
   .pago-bar-outer { padding: 0 8px 0 0; }
   .pago-bar-track {
-    position: relative; height: 18px; background: #0a1a2e;
+    position: relative; height: 18px; background: #e2e8f0;
     border-radius: 6px; overflow: visible;
   }
   .pago-bar-fill {
@@ -290,7 +290,7 @@
   .pago-bar-marker {
     position: absolute; top: -4px; bottom: -4px; width: 3px; border-radius: 2px;
   }
-  .pago-bar-marker-m3 { background: #334155; }
+  .pago-bar-marker-m3 { background: #94a3b8; }
   .pago-bar-marker-ss { background: #f59e0b; }
   .pago-bar-marker-up { background: #a78bfa; }
   .pago-bar-stat {
@@ -369,7 +369,7 @@
     position: fixed; inset: 0; pointer-events: none; z-index: 9999;
     background: repeating-linear-gradient(
       0deg, transparent, transparent 2px,
-      rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px
+      rgba(0,0,0,0.015) 2px, rgba(0,0,0,0.015) 4px
     );
   }
 </style>
@@ -2473,7 +2473,7 @@ async function loadPAGOUsage() {
   const tbody = document.getElementById('pago-usage-body');
   if (tbody && !_pagoLoaded) {
     tbody.querySelectorAll('td:last-child').forEach(td => {
-      td.innerHTML = '<span style="color:#334155;font-size:11px">loading…</span>';
+      td.innerHTML = '<span style="color:#94a3b8;font-size:11px">loading…</span>';
     });
   }
 
@@ -2564,7 +2564,7 @@ function renderPAGOTable() {
       ? `<div style="font-size:10px;color:#64748b;margin-top:2px;font-weight:400">${d.rep}</div>` : '';
     const barHTML = _pagoLoaded
       ? pagoBarHTML(d.usage30d, d.month3_target, d.steady_state, d.volume_upside, globalMax)
-      : '<span style="color:#334155;font-size:11px;padding:8px 0;display:block">loading…</span>';
+      : '<span style="color:#94a3b8;font-size:11px;padding:8px 0;display:block">loading…</span>';
 
     return `<tr style="cursor:pointer" onclick="openPAGOModal(${idx})" onmouseover="this.style.background='rgba(167,139,250,0.06)'" onmouseout="this.style.background=''">
       <td class="td-truncate" style="width:200px;vertical-align:top;padding-top:14px">
@@ -2709,7 +2709,7 @@ function renderUsageTable() {
       </div>`;
     }).join('')
     + (anyActive
-      ? `<div class="sig-chip" onclick="clearSignalFilters()" style="cursor:pointer;border-color:#334155;color:#64748b;gap:4px">
+      ? `<div class="sig-chip" onclick="clearSignalFilters()" style="cursor:pointer;border-color:#cbd5e1;color:#94a3b8;gap:4px">
            <span style="font-size:10px">✕</span> <span style="color:#94a3b8">Clear</span>
          </div>`
       : '');
