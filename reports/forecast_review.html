@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sales Forecast Review</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230284c7'/><polyline points='4,24 10,16 16,20 22,10 28,14' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%232563eb'/><polyline points='4,24 10,16 16,20 22,10 28,14' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
@@ -15,8 +15,8 @@
     --card:      #f8fafc;
     --border:    #e2e8f0;
     --border-hi: #cbd5e1;
-    --accent:    #0284c7;
-    --accent-dim:#7dd3fc;
+    --accent:    #2563eb;
+    --accent-dim:#93c5fd;
     --text-hi:   #0f172a;
     --text:      #334155;
     --text-dim:  #94a3b8;
@@ -33,33 +33,33 @@
 
   /* Header */
   .page-header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    border-top: 2px solid var(--accent);
+    background: #1e2d5e;
+    border-bottom: 1px solid #2d3f7a;
     padding: 10px 24px;
     display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
     position: sticky; top: 0; z-index: 200;
   }
   .page-header h1 {
     font-family: var(--mono);
-    font-size: 13px; font-weight: 700; color: var(--accent);
+    font-size: 13px; font-weight: 700; color: #ffffff;
     text-transform: uppercase; letter-spacing: 0.15em; white-space: nowrap;
   }
   .header-week-tag {
-    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
-    background: var(--card); border: 1px solid var(--border);
+    font-family: var(--mono); font-size: 11px; color: #93c5fd;
+    background: rgba(255,255,255,0.08); border: 1px solid #2d3f7a;
     padding: 3px 10px; letter-spacing: 0.08em;
   }
-  .header-meta { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-left: auto; text-align: right; white-space: nowrap; }
-  .header-meta strong { color: var(--text); }
-  .team-metrics { display: flex; gap: 20px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); border-left: 1px solid var(--border); padding-left: 18px; }
+  .header-meta { font-family: var(--mono); font-size: 10px; color: #94a3b8; margin-left: auto; text-align: right; white-space: nowrap; }
+  .header-meta strong { color: #e2e8f0; }
+  .team-metrics { display: flex; gap: 20px; flex-wrap: wrap; font-size: 12px; color: #94a3b8; border-left: 1px solid #2d3f7a; padding-left: 18px; }
   .team-metric { white-space: nowrap; font-family: var(--mono); font-size: 11px; }
-  .team-metric strong { color: var(--text-hi); }
+  .team-metric strong { color: #ffffff; }
 
   /* Tab nav */
   .tab-nav {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+    border-top: 3px solid #1e2d5e;
     padding: 0 24px;
     display: flex; gap: 0; flex-wrap: wrap;
     position: sticky; top: var(--header-h, 43px); z-index: 199;
@@ -714,9 +714,9 @@
   <!-- ── PayGo Accounts view ── -->
   <div id="usage-pago-view">
     <div style="display:flex;gap:6px;margin-bottom:10px" id="pago-period-btns">
-      <button class="qpb-toggle active" onclick="setPagoPeriod('all',this)">All Time</button>
+      <button class="qpb-toggle"        onclick="setPagoPeriod('all',this)">All Time</button>
       <button class="qpb-toggle"        onclick="setPagoPeriod('fy',this)">FY</button>
-      <button class="qpb-toggle"        onclick="setPagoPeriod('cq',this)">CQ</button>
+      <button class="qpb-toggle active" onclick="setPagoPeriod('cq',this)">CQ</button>
     </div>
     <div class="card" style="overflow-x:auto">
       <table class="data-table" id="pago-usage-table">
@@ -2427,7 +2427,7 @@ let _pagoUsage     = {};   // accountId → 30d calls (fetched live)
 let _pagoSortKey   = 'usage_30d';
 let _pagoSortDir   = -1;   // highest usage first
 let _pagoLoaded    = false;
-let _pagoPeriod    = 'all'; // 'all' | 'fy' | 'cq'
+let _pagoPeriod    = 'cq'; // 'all' | 'fy' | 'cq'
 
 const CQ_START = '2026-04-01';
 const CQ_END   = '2026-06-30';
