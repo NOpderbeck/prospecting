@@ -804,7 +804,7 @@ async function triggerRefresh() {
   label.textContent = 'Pulling data…';
 
   try {
-    const resp = await fetch('http://localhost:8000/api/refresh-forecast', { method: 'POST' });
+    const resp = await _apiFetch('/api/refresh-forecast', { method: 'POST' });
     const result = await resp.json();
     if (result.ok) {
       label.textContent = `Done (${result.elapsed}s)`;
@@ -826,10 +826,43 @@ async function triggerRefresh() {
   }
 }
 
+// ===================== IAP-AWARE FETCH =====================
+// When IAP session expires, a fetch gets a cross-origin 302 to accounts.google.com
+// which the browser blocks with a CORS error.  Using redirect:'manual' lets us
+// detect the opaque redirect (status 0) and reload the page so IAP can handle
+// the full-page auth flow properly.
+async function _apiFetch(url, opts = {}) {
+  const resp = await fetch(url, { credentials: 'include', redirect: 'manual', ...opts });
+  if (resp.type === 'opaqueredirect' || resp.status === 0) {
+    // IAP session expired — surface a re-auth prompt instead of a console error
+    _showIapExpired();
+    throw new Error('IAP session expired');
+  }
+  return resp;
+}
+
+function _showIapExpired() {
+  const el = document.getElementById('loading');
+  if (el) {
+    el.style.display = 'flex';
+    el.innerHTML = `
+      <div style="text-align:center;padding:32px;font-family:var(--mono)">
+        <div style="font-size:13px;color:var(--text);margin-bottom:12px">
+          // Session expired — sign in again to continue
+        </div>
+        <button onclick="window.location.reload()"
+          style="background:var(--accent);color:#fff;border:none;padding:8px 20px;
+                 font-family:var(--mono);font-size:11px;cursor:pointer;letter-spacing:0.08em">
+          SIGN IN
+        </button>
+      </div>`;
+  }
+}
+
 // ===================== DATA LOAD =====================
 async function loadData() {
   try {
-    const resp = await fetch('./forecast_data.json?t=' + Date.now());
+    const resp = await _apiFetch('./forecast_data.json?t=' + Date.now());
     data = await resp.json();
     document.getElementById('loading').style.display = 'none';
     const hash = location.hash.replace('#', '');
@@ -2553,7 +2586,7 @@ async function loadPAGOUsage() {
   }
 
   try {
-    const resp = await fetch(`http://localhost:8000/api/pago-usage?ids=${ids.join(',')}`);
+    const resp = await _apiFetch(`/api/pago-usage?ids=${ids.join(',')}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     _pagoUsage  = await resp.json();
     _pagoLoaded = true;
@@ -2948,7 +2981,7 @@ async function openOppModal(oppId, accountName) {
   overlay.classList.add('open');
 
   try {
-    const resp = await fetch(`http://localhost:8000/api/opp/${oppId}`);
+    const resp = await _apiFetch(`/api/opp/${oppId}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const d = await resp.json();
 

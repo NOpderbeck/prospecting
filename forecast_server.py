@@ -24,6 +24,44 @@ BASE_DIR = Path(__file__).parent
 
 app = FastAPI(title="Forecast Dashboard")
 
+# ---------------------------------------------------------------------------
+# Cached Salesforce connection — avoids SERVER_UNAVAILABLE from rapid logins
+# ---------------------------------------------------------------------------
+_sf_client = None
+_sf_lock = __import__("threading").Lock()
+
+def _get_sf():
+    global _sf_client
+    from simple_salesforce import Salesforce as _SF
+    with _sf_lock:
+        if _sf_client is None:
+            _sf_client = _SF(
+                username=os.environ["SF_USERNAME"],
+                password=os.environ["SF_PASSWORD"],
+                security_token=os.environ["SF_SECURITY_TOKEN"],
+            )
+    return _sf_client
+
+def _sf_query(soql: str):
+    global _sf_client
+    from simple_salesforce import SalesforceExpiredSession
+    try:
+        return _get_sf().query_all(soql)
+    except SalesforceExpiredSession:
+        with _sf_lock:
+            _sf_client = None
+        return _get_sf().query_all(soql)
+
+def _sf_query_one(soql: str):
+    global _sf_client
+    from simple_salesforce import SalesforceExpiredSession
+    try:
+        return _get_sf().query(soql)
+    except SalesforceExpiredSession:
+        with _sf_lock:
+            _sf_client = None
+        return _get_sf().query(soql)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -103,12 +141,6 @@ async def forecast_data():
 async def get_opp_detail(opp_id: str):
     """Return volume / usage estimate fields for a single Opportunity."""
     try:
-        from simple_salesforce import Salesforce as _SF
-        sf = _SF(
-            username=os.environ["SF_USERNAME"],
-            password=os.environ["SF_PASSWORD"],
-            security_token=os.environ["SF_SECURITY_TOKEN"],
-        )
         fields = (
             "Id, Name, StageName, Amount, CloseDate, Owner.Name, "
             "Primary_API_Endpoint__c, "
@@ -118,7 +150,7 @@ async def get_opp_detail(opp_id: str):
             "Estimated_Annualized_Revenue_Potential__c, "
             "Blended_Estimated_Cost_API_Call_CPM__c"
         )
-        result = sf.query(f"SELECT {fields} FROM Opportunity WHERE Id = '{opp_id}' LIMIT 1")
+        result = _sf_query_one(f"SELECT {fields} FROM Opportunity WHERE Id = '{opp_id}' LIMIT 1")
         records = result.get("records", [])
         if not records:
             raise HTTPException(status_code=404, detail="Opportunity not found")
@@ -151,14 +183,8 @@ async def get_pago_usage(ids: str = ""):
     if not account_ids:
         return {}
     try:
-        from simple_salesforce import Salesforce as _SF
-        sf = _SF(
-            username=os.environ["SF_USERNAME"],
-            password=os.environ["SF_PASSWORD"],
-            security_token=os.environ["SF_SECURITY_TOKEN"],
-        )
         ids_str = "', '".join(account_ids)
-        result = sf.query_all(f"""
+        result = _sf_query(f"""
             SELECT Account__c, API_Calls_Last_30_Days__c
             FROM Product_User__c
             WHERE Account__c IN ('{ids_str}')
@@ -170,6 +196,37 @@ async def get_pago_usage(ids: str = ""):
             if acct_id:
                 totals[acct_id] = totals.get(acct_id, 0) + calls
         return totals
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/refresh-forecast")
+async def refresh_forecast():
+    """Trigger the forecast-refresh Cloud Run Job to pull fresh data into GCS."""
+    try:
+        import google.auth
+        import google.auth.transport.requests
+        import requests as _req
+
+        creds, project = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        auth_req = google.auth.transport.requests.Request()
+        creds.refresh(auth_req)
+
+        region  = os.getenv("CLOUD_RUN_REGION", "us-central1")
+        job     = os.getenv("REFRESH_JOB_NAME", "forecast-refresh")
+        url     = (
+            f"https://{region}-run.googleapis.com/apis/run.googleapis.com/v1"
+            f"/namespaces/{project}/jobs/{job}:run"
+        )
+        resp = _req.post(url, headers={"Authorization": f"Bearer {creds.token}"}, timeout=15)
+        if not resp.ok:
+            raise HTTPException(status_code=502, detail=f"Job trigger failed: {resp.text}")
+
+        return {"ok": True, "message": "Refresh job triggered — data will update in ~2 min"}
     except HTTPException:
         raise
     except Exception as e:
