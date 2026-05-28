@@ -655,8 +655,15 @@
       <div class="card-title">Rep Activity Summary</div>
       <div style="overflow-x:auto">
         <table class="data-table" id="activity-summary-table">
-          <thead><tr>
-            <th>Rep</th><th>Total Acts</th><th>Avg/wk</th><th>Opps Created</th><th>Acts/Opp</th><th>CVR%</th><th>WoW Trend</th><th style="width:80px">Volume</th>
+          <thead><tr id="activity-summary-head">
+            <th onclick="sortActivityBy('name')"      class="sortable-th" data-col="name">Rep</th>
+            <th onclick="sortActivityBy('total')"     class="sortable-th" data-col="total">Total Acts</th>
+            <th onclick="sortActivityBy('avgWk')"     class="sortable-th" data-col="avgWk">Avg/wk</th>
+            <th onclick="sortActivityBy('opps')"      class="sortable-th" data-col="opps">Opps Created</th>
+            <th onclick="sortActivityBy('actsPerOpp')"class="sortable-th" data-col="actsPerOpp">Acts/Opp</th>
+            <th onclick="sortActivityBy('cvr')"       class="sortable-th" data-col="cvr">CVR%</th>
+            <th onclick="sortActivityBy('wowChg')"    class="sortable-th" data-col="wowChg">WoW Trend</th>
+            <th style="width:80px">Volume</th>
           </tr></thead>
           <tbody id="activity-summary-body"></tbody>
         </table>
@@ -801,22 +808,47 @@ async function triggerRefresh() {
   const label = document.getElementById('refresh-label');
   btn.disabled = true;
   btn.classList.add('loading');
-  label.textContent = 'Pulling data…';
+  label.textContent = 'Queuing…';
 
   try {
     const resp = await _apiFetch('/api/refresh-forecast', { method: 'POST' });
     const result = await resp.json();
-    if (result.ok) {
-      label.textContent = result.elapsed != null ? `Done (${result.elapsed}s)` : (result.message || 'Done');
+    if (!result.ok) throw new Error(result.error || 'Job trigger failed');
+
+    // The Cloud Run job runs async (~2 min). Poll forecast_data.json until
+    // generated_at changes, then reload data automatically.
+    const oldTs = data?.generated_at || '';
+    label.textContent = 'Running… 0s';
+    const started = Date.now();
+    const timer = setInterval(() => {
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      label.textContent = `Running… ${elapsed}s`;
+    }, 1000);
+
+    let reloaded = false;
+    for (let attempt = 0; attempt < 30; attempt++) {    // poll up to ~2.5 min
+      await new Promise(r => setTimeout(r, 5000));      // wait 5s between checks
+      try {
+        const check = await _apiFetch('./forecast_data.json?t=' + Date.now());
+        const fresh = await check.json();
+        if (fresh.generated_at && fresh.generated_at !== oldTs) {
+          clearInterval(timer);
+          data = fresh;
+          renderAll();
+          label.textContent = 'Done ✓';
+          btn.classList.remove('loading');
+          setTimeout(() => { label.textContent = 'Refresh'; btn.disabled = false; }, 3000);
+          reloaded = true;
+          break;
+        }
+      } catch (_) { /* keep polling */ }
+    }
+
+    if (!reloaded) {
+      clearInterval(timer);
+      label.textContent = 'Timed out';
       btn.classList.remove('loading');
-      // Reload the JSON and re-render without full page refresh
-      await loadData();
-      setTimeout(() => { label.textContent = 'Refresh'; btn.disabled = false; }, 2000);
-    } else {
-      label.textContent = 'Error';
-      btn.classList.remove('loading');
-      console.error('Refresh error:', result.error);
-      setTimeout(() => { label.textContent = 'Refresh'; btn.disabled = false; }, 3000);
+      setTimeout(() => { label.textContent = 'Refresh'; btn.disabled = false; }, 4000);
     }
   } catch(e) {
     label.textContent = 'Error';
@@ -2088,6 +2120,18 @@ const EXCLUDE_FROM_STACKED = ['Joe Hindle', 'Ivy Gress', 'Nick Opderbeck'];
 const EXCLUDE_FROM_TREND = ['Haroon Anwar', 'Joe Hindle', 'Ivy Gress', 'Nick Opderbeck'];
 
 let _actView = 'all'; // 'all' | 'ae'
+let _actSortCol = 'total';  // default sort: total activity descending
+let _actSortDir = -1;       // -1 = descending, 1 = ascending
+
+function sortActivityBy(col) {
+  if (_actSortCol === col) {
+    _actSortDir = -_actSortDir;
+  } else {
+    _actSortCol = col;
+    _actSortDir = col === 'name' ? 1 : -1; // names asc by default, numbers desc
+  }
+  renderActivitySummaryTable();
+}
 
 function setActivityView(view) {
   _actView = view;
@@ -2322,54 +2366,86 @@ function renderActivitySummaryTable() {
   const { idxs } = getActWeekSlice();
 
   const summaryRepNames = ALL_REPS.filter(n => !EXCLUDE_FROM_STACKED.includes(n) && byRepObj[n]);
-  const totals   = summaryRepNames.map(n => idxs.reduce((s, i) => s + ((byRepObj[n] || [])[i] || 0), 0));
-  const maxTotal = Math.max(...totals, 1);
 
-  const rows = summaryRepNames.map((name, ri) => {
+  // Pre-compute WoW reference weeks (same for all reps)
+  const allRepsVals    = summaryRepNames.map(n => byRepObj[n] || []);
+  const teamTotalByIdx = idxs.map(i => allRepsVals.reduce((s, v) => s + (v[i] || 0), 0));
+  const nonZeroIdxs    = idxs.filter((_, pos) => teamTotalByIdx[pos] > 0);
+  const lastIdx        = nonZeroIdxs[nonZeroIdxs.length - 1] ?? -1;
+  const priorIdx       = nonZeroIdxs[nonZeroIdxs.length - 2] ?? -1;
+
+  // Build sortable data objects
+  const rows = summaryRepNames.map(name => {
     const vals  = byRepObj[name] || [];
     const oVals = oppsObj[name]  || [];
-    const total = idxs.reduce((s, i) => s + (vals[i] || 0), 0);
-    const opps  = idxs.reduce((s, i) => s + (oVals[i] || 0), 0);
+    const total  = idxs.reduce((s, i) => s + (vals[i] || 0), 0);
+    const opps   = idxs.reduce((s, i) => s + (oVals[i] || 0), 0);
     const nWeeks = idxs.length || 1;
-    const avgWk = Math.round(total / nWeeks);
-    const actsPerOpp = opps ? Math.round(total / opps) : '—';
-    const cvr = total ? (opps / total * 100).toFixed(2) : '0.00';
-    const cvrNum = parseFloat(cvr);
-    const cvrColor = cvrNum >= 1 ? '#16a34a' : cvrNum >= 0.5 ? '#d97706' : '#dc2626';
+    const avgWk  = Math.round(total / nWeeks);
+    const actsPerOppNum = opps ? Math.round(total / opps) : null;
+    const cvrNum = total ? parseFloat((opps / total * 100).toFixed(2)) : 0;
 
-    // WoW trend: skip trailing zero weeks (current week may be in-progress / unpulled)
-    // Find last two weeks in the slice that have data across the whole team
-    const allRepsVals = summaryRepNames.map(n => byRepObj[n] || []);
-    const teamTotalByIdx = idxs.map(i => allRepsVals.reduce((s, v) => s + (v[i] || 0), 0));
-    // Walk backwards to find the last two non-zero week positions
-    const nonZeroIdxs = idxs.filter((_, pos) => teamTotalByIdx[pos] > 0);
-    const lastIdx  = nonZeroIdxs[nonZeroIdxs.length - 1] ?? -1;
-    const priorIdx = nonZeroIdxs[nonZeroIdxs.length - 2] ?? -1;
-    const lastWk   = lastIdx  >= 0 ? (vals[lastIdx]  || 0) : 0;
-    const priorWk  = priorIdx >= 0 ? (vals[priorIdx] || 0) : 0;
-    let trend = '→', trendColor = '#64748b';
-    if (priorWk > 0) {
-      const chg = Math.round((lastWk - priorWk) / priorWk * 100);
-      if (chg > 5)       { trend = `↑ ${chg}%`;           trendColor = '#16a34a'; }
-      else if (chg < -5) { trend = `↓ ${Math.abs(chg)}%`; trendColor = '#dc2626'; }
+    const lastWk  = lastIdx  >= 0 ? (vals[lastIdx]  || 0) : 0;
+    const priorWk = priorIdx >= 0 ? (vals[priorIdx] || 0) : 0;
+    const wowChg  = priorWk > 0 ? Math.round((lastWk - priorWk) / priorWk * 100) : 0;
+
+    return { name, total, avgWk, opps, actsPerOpp: actsPerOppNum, cvr: cvrNum, wowChg };
+  });
+
+  // Sort
+  const col = _actSortCol;
+  rows.sort((a, b) => {
+    let av = a[col], bv = b[col];
+    if (col === 'name') return av.localeCompare(bv) * _actSortDir;
+    if (col === 'actsPerOpp') {
+      // nulls (—) always last regardless of direction
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
     }
+    av = av ?? -Infinity; bv = bv ?? -Infinity;
+    return (av - bv) * _actSortDir;
+  });
 
-    const barPct = Math.round(totals[ri] / maxTotal * 100);
-    const col = REP_COLOR_MAP[name] || '#6366f1';
-    const parts = name.split(' ');
-    const shortName = parts.length >= 2 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : name;
+  const maxTotal = Math.max(...rows.map(r => r.total), 1);
+
+  // Update header arrows
+  document.querySelectorAll('#activity-summary-head .sortable-th').forEach(th => {
+    const isActive = th.dataset.col === _actSortCol;
+    th.classList.toggle('sort-active', isActive);
+    const arrow = isActive ? (_actSortDir === -1 ? ' ↓' : ' ↑') : ' ↕';
+    th.dataset.arrow = arrow; // store for text rebuild
+    // Set text = original label + arrow (strip old arrows first)
+    const base = th.textContent.replace(/ [↕↑↓]$/, '');
+    th.textContent = base + arrow;
+  });
+
+  // Render rows
+  const html = rows.map(r => {
+    const { name, total, avgWk, opps, actsPerOpp: actsPerOppNum, cvr: cvrNum, wowChg } = r;
+    const cvrColor = cvrNum >= 1 ? '#16a34a' : cvrNum >= 0.5 ? '#d97706' : '#dc2626';
+    let trend = '→', trendColor = '#64748b';
+    if (Math.abs(wowChg) > 5) {
+      trend      = wowChg > 0 ? `↑ ${wowChg}%` : `↓ ${Math.abs(wowChg)}%`;
+      trendColor = wowChg > 0 ? '#16a34a' : '#dc2626';
+    }
+    const barPct = Math.round(total / maxTotal * 100);
+    const col    = REP_COLOR_MAP[name] || '#6366f1';
+    const parts  = name.split(' ');
+    const short  = parts.length >= 2 ? `${parts[0]} ${parts[parts.length-1][0]}.` : name;
     return `<tr>
-      <td title="${name}" style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:6px;vertical-align:middle"></span>${shortName}</td>
+      <td title="${name}" style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:6px;vertical-align:middle"></span>${short}</td>
       <td>${total.toLocaleString()}</td>
       <td>${avgWk.toLocaleString()}</td>
       <td>${opps}</td>
-      <td>${actsPerOpp}</td>
-      <td style="color:${cvrColor};font-weight:700">${cvr}%</td>
+      <td>${actsPerOppNum !== null ? actsPerOppNum : '—'}</td>
+      <td style="color:${cvrColor};font-weight:700">${cvrNum.toFixed(2)}%</td>
       <td style="color:${trendColor};font-weight:600">${trend}</td>
       <td><div class="vol-bar-wrap"><div class="vol-bar-fill" style="width:${barPct}%;background:${col}"></div></div></td>
     </tr>`;
   }).join('');
-  document.getElementById('activity-summary-body').innerHTML = rows;
+
+  document.getElementById('activity-summary-body').innerHTML = html;
 }
 
 // ===================== TAB 5: OPP SOURCES =====================
