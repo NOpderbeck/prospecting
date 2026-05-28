@@ -807,7 +807,7 @@ async function triggerRefresh() {
     const resp = await _apiFetch('/api/refresh-forecast', { method: 'POST' });
     const result = await resp.json();
     if (result.ok) {
-      label.textContent = `Done (${result.elapsed}s)`;
+      label.textContent = result.elapsed != null ? `Done (${result.elapsed}s)` : (result.message || 'Done');
       btn.classList.remove('loading');
       // Reload the JSON and re-render without full page refresh
       await loadData();

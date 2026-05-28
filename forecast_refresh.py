@@ -539,9 +539,9 @@ def build_activity(sf, id_map: dict) -> dict:
 
     all_ids_str = ids_str(id_map, ALL_REPS)
 
-    # Pull all SF tasks for the 7-week window
-    window_start = "2026-03-29"
-    window_end   = "2026-05-16"
+    # Pull all SF tasks for the full weekly window (dynamic — covers Q2 start through end of current week)
+    window_start = WEEKLY_WINDOWS[0][1]   # first Sunday of Q2
+    window_end   = WEEKLY_WINDOWS[-1][2]  # Saturday of current week
 
     tasks = soql(sf, f"""
         SELECT OwnerId, Owner.Name, ActivityDate, Type, TaskSubtype, Subject
