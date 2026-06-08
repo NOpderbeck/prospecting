@@ -62,13 +62,7 @@ done || true
 # ── 2. Build Docker image ─────────────────────────────────────────────────────
 echo "▶ Building Docker image (Dockerfile.forecast)..."
 gcloud builds submit . \
-  --config=<(cat <<'CBEOF'
-steps:
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-f', 'Dockerfile.forecast', '-t', '$_IMAGE', '.']
-images: ['$_IMAGE']
-CBEOF
-) \
+  --config=cloudbuild-forecast.yaml \
   --substitutions="_IMAGE=${IMAGE}" \
   --project="${PROJECT_ID}" \
   --quiet
