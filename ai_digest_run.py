@@ -365,12 +365,9 @@ You are an AI analyst writing a daily briefing for a senior sales leader at You.
 You.com sells a Search API used by AI agents and enterprise applications to access
 real-time, grounded web information.
 
-Your job is to write two things:
-1. An honest, curious summary of what is actually happening in AI today
-2. A short LinkedIn post that reframes the most interesting trend through a
-   search-API lens — but only when that connection is genuinely natural
+Your job is to write an honest, curious summary of what is actually happening in AI today.
 
-## Part 1: Digest summary (summary_paragraphs)
+## Digest summary (summary_paragraphs)
 
 The digest is NOT a sales document. Do not force a You.com angle.
 Write like a sharp analyst who finds this space genuinely interesting.
@@ -394,28 +391,6 @@ Write 3 paragraphs:
 **Synthesis over summary.** Identify patterns — do not list news items or recap
 individual posts. Write as someone who deeply understands how AI systems are built.
 
-## Part 2: LinkedIn post (linkedin_post)
-
-Pick the single most interesting trend from the digest and write a short post
-that reframes it through the lens of real-time, grounded search — but only if
-the connection is natural and adds insight. If forced, just write about the trend.
-
-The post should read like an informed operator's take, not a press release or pitch.
-
-Formatting rules (strictly enforced):
-  - 2 to 3 short paragraphs maximum. Under 180 words total.
-  - Line 1 is a short punchy hook that stands alone above the fold.
-    One or two sentences. A bold observation or surprising reframe.
-    Example pattern: "Most [X] aren't [cause]. They're [real cause]. [emoji]"
-  - 2 to 4 emojis placed naturally at the end of key sentences. Not clustered.
-  - Never use em dashes (— or --). Use a colon, a comma, or a new sentence instead.
-  - Do NOT mention competitors (Tavily, Exa, Parallel Web, Nimble, LinkUp, Perplexity,
-    or any other named search/retrieval competitor). The post is published publicly.
-  - Do NOT end with a question.
-  - NEVER cite individual posts, users, or anecdotes. Generalize: "Teams building
-    production agents are finding...", "The pattern emerging across the community
-    is...", "Developers increasingly report...".
-
 ## competitive_mentions
 Only include if a competitor appeared in multiple independent signals today or made
 a move that signals a genuine market shift. If no competitor had meaningful signal,
@@ -431,14 +406,8 @@ Return a single valid JSON object with exactly these keys:
   ],
   "trend_insight": "one sentence summarizing the dominant signal",
   "market_direction": "one sentence on where the space is heading",
-  "linkedin_post": "post text",
-  "x_post": "under 280 characters",
   "top_source_urls": ["url1", "url2", "..."]
 }
-
-## x_post
-One sharp insight, 280 chars max. No em dashes. No competitor names. Should make
-the reader think.
 
 ## top_source_urls
 Up to 8 of the most credible/relevant URLs from the signals.
@@ -538,16 +507,6 @@ def format_digest(digest: dict, run_date: date) -> str:
     return "\n".join(lines)
 
 
-def format_posts(digest: dict) -> str:
-    lines: list[str] = []
-    lp = (digest.get("linkedin_post") or "").strip()
-    xp = (digest.get("x_post") or "").strip()
-    if lp:
-        lines += ["*Suggested LinkedIn Post*", "", lp, ""]
-    if xp:
-        lines += ["───", "*Suggested X Post*", "", xp]
-    return "\n".join(lines).strip()
-
 # ── Snapshot ──────────────────────────────────────────────────────────────────
 
 def save_snapshot(run_date: date, signals: list[dict], digest: dict) -> None:
@@ -624,23 +583,16 @@ def main() -> None:
     digest = synthesize(top_signals, client, run_date)
 
     digest_text = format_digest(digest, run_date)
-    posts_text  = format_posts(digest)
 
     # ── Output ────────────────────────────────────────────────────────────────
     if args.dry_run:
         print("\n" + "=" * 60)
         print(digest_text)
-        if posts_text:
-            print("\n[THREAD REPLY]")
-            print(posts_text)
         print("=" * 60)
     else:
         print(f"\n📬 Posting to {config['slack_channel']}...")
         ts = post_slack(config["slack_token"], config["slack_channel"], digest_text)  # type: ignore[arg-type]
-        if ts and posts_text:
-            post_slack(config["slack_token"], config["slack_channel"], posts_text, thread_ts=ts)  # type: ignore[arg-type]
-            print("  ✅ Thread reply posted")
-        elif ts:
+        if ts:
             print("  ✅ Digest posted")
 
     # ── Snapshot ──────────────────────────────────────────────────────────────
