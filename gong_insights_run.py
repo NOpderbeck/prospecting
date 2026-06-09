@@ -110,6 +110,8 @@ def parse_args():
                    help="Print Slack message; skip Google Doc creation and Slack post")
     p.add_argument("--skip-publish", action="store_true",
                    help="Save analysis + cache but skip Google Doc and Slack")
+    p.add_argument("--skip-slack",   action="store_true",
+                   help="Publish Google Doc but do not post to Slack")
     return p.parse_args()
 
 
@@ -187,6 +189,46 @@ def fetch_calls(config: dict, from_dt: datetime, to_dt: datetime,
     return calls
 
 
+def fetch_party_data(config: dict, call_ids: list[str],
+                     verbose: bool) -> dict[str, list]:
+    """Fetch party/affiliation data for call IDs via /v2/calls/extensive.
+
+    Returns {call_id: [party_dicts]} where each party has name, affiliation,
+    speakerId. The basic /v2/calls endpoint returns parties: [] empty; only
+    the extensive endpoint populates affiliation.
+    """
+    if not call_ids:
+        return {}
+
+    url = f"{GONG_BASE}/v2/calls/extensive"
+    headers = {**_gong_headers(config), "Content-Type": "application/json"}
+    result: dict[str, list] = {}
+
+    for i in range(0, len(call_ids), 100):
+        batch = call_ids[i: i + 100]
+        resp = requests.post(
+            url, headers=headers,
+            json={
+                "filter": {"callIds": batch},
+                "contentSelector": {"exposedFields": {"parties": True}},
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        for call in resp.json().get("calls", []):
+            cid = (call.get("metaData") or {}).get("id") or call.get("id")
+            if cid:
+                result[cid] = call.get("parties") or []
+
+        if verbose:
+            print(f"  Party batch {i//100 + 1}: {len(result)} calls enriched")
+
+        if i + 100 < len(call_ids):
+            time.sleep(GONG_RATE_SLEEP)
+
+    return result
+
+
 def fetch_transcripts(config: dict, call_ids: list[str],
                       verbose: bool) -> dict[str, list]:
     if not call_ids:
@@ -217,14 +259,22 @@ def fetch_transcripts(config: dict, call_ids: list[str],
     return result
 
 
-def format_transcript(call: dict, transcript_parts: list) -> str:
+def format_transcript(call: dict, transcript_parts: list) -> str | None:
+    """Format a call transcript retaining only external speaker sentences.
+
+    Returns None if the call has no external speech after filtering (caller
+    should skip it rather than sending a content-free transcript to Claude).
+    """
     speaker_map: dict[str, str] = {}
+    affiliation_map: dict[str, str] = {}  # speakerId → "internal" | "external" | ""
     for party in call.get("parties", []):
         pid = party.get("speakerId") or party.get("id") or ""
         name = (party.get("name") or "Unknown").strip()
-        affiliation = (party.get("affiliation") or "").capitalize()
+        affiliation = (party.get("affiliation") or "").lower()
         if pid:
-            speaker_map[pid] = f"{name} ({affiliation})" if affiliation else name
+            label = affiliation.capitalize()
+            speaker_map[pid] = f"{name} ({label})" if label else name
+            affiliation_map[pid] = affiliation
 
     meta = call.get("metaData") or {}
     account_name = (meta.get("primaryAccount") or {}).get("name") or ""
@@ -234,6 +284,29 @@ def format_transcript(call: dict, transcript_parts: list) -> str:
     call_url = f"https://us-64844.app.gong.io/call?id={call_id}" if call_id else ""
 
     title = call.get("title") or "Untitled Call"
+
+    sentences: list[tuple[float, str, str]] = []
+    total_sentences = 0
+    skipped_internal = 0
+    for part in transcript_parts:
+        sid = part.get("speakerId") or ""
+        aff = affiliation_map.get(sid, "")
+        speaker = speaker_map.get(sid, "Unknown")
+        for s in part.get("sentences", []):
+            text = (s.get("text") or "").strip()
+            if not text:
+                continue
+            total_sentences += 1
+            # Skip confirmed internal speakers; include external or unknown affiliation
+            if aff == "internal":
+                skipped_internal += 1
+                continue
+            sentences.append((s.get("start", 0) / 1000.0, speaker, text))
+
+    if not sentences:
+        return None
+
+    pct_kept = round(100 * len(sentences) / total_sentences) if total_sentences else 0
     lines = [
         f"## {title}",
         f"- Date: {(call.get('started') or '')[:10] or 'unknown'}",
@@ -241,17 +314,10 @@ def format_transcript(call: dict, transcript_parts: list) -> str:
         f"- Account: {account_name if account_name else f'unknown (infer from title: {title})'}",
         f"- Deal Stage: {deal_stage or 'unknown'}",
         f"- URL: {call_url}",
+        f"- External speech: {len(sentences)}/{total_sentences} sentences ({pct_kept}%)",
         "",
-        "### Transcript",
+        "### External Participant Transcript",
     ]
-
-    sentences: list[tuple[float, str, str]] = []
-    for part in transcript_parts:
-        speaker = speaker_map.get(part.get("speakerId") or "", "Unknown")
-        for s in part.get("sentences", []):
-            text = (s.get("text") or "").strip()
-            if text:
-                sentences.append((s.get("start", 0) / 1000.0, speaker, text))
 
     sentences.sort(key=lambda x: x[0])
     current_speaker: str | None = None
@@ -1911,29 +1977,42 @@ def main():
         now     = datetime.now(timezone.utc)
         from_dt = now - timedelta(days=days)
 
-        print(f"[1/4] Fetching calls (last {days} days) ...")
+        print(f"[1/5] Fetching calls (last {days} days) ...")
         calls = fetch_calls(config, from_dt, now, args.max_calls, args.verbose)
         if not calls:
             print(f"No qualifying calls found in the past {days} days.")
             sys.exit(0)
 
-        print(f"\n[2/4] Fetching transcripts for {len(calls)} calls ...")
+        print(f"\n[2/5] Fetching transcripts + party data for {len(calls)} calls ...")
         call_ids = [c["id"] for c in calls if c.get("id")]
         transcripts_by_id = fetch_transcripts(config, call_ids, args.verbose)
         print(f"  Transcripts received: {len(transcripts_by_id)}")
+        party_data = fetch_party_data(config, call_ids, args.verbose)
+        print(f"  Party data received: {len(party_data)} calls enriched")
 
-        print("\n[3/4] Formatting transcripts ...")
+        print("\n[3/5] Formatting transcripts ...")
         calls_by_id = {c["id"]: c for c in calls if c.get("id")}
+        # Merge party/affiliation data (not available from /v2/calls basic endpoint)
+        for cid, parties in party_data.items():
+            if cid in calls_by_id:
+                calls_by_id[cid]["parties"] = parties
         transcript_texts: list[str] = []
-        skipped = 0
+        skipped_empty = 0
+        skipped_internal_only = 0
         for cid, parts in transcripts_by_id.items():
             if not parts:
-                skipped += 1
+                skipped_empty += 1
                 continue
-            transcript_texts.append(format_transcript(calls_by_id.get(cid, {"id": cid}), parts))
+            text = format_transcript(calls_by_id.get(cid, {"id": cid}), parts)
+            if text is None:
+                skipped_internal_only += 1
+                continue
+            transcript_texts.append(text)
 
-        if skipped:
-            print(f"  Skipped {skipped} calls with empty transcripts")
+        if skipped_empty:
+            print(f"  Skipped {skipped_empty} calls with empty transcripts")
+        if skipped_internal_only:
+            print(f"  Skipped {skipped_internal_only} calls with no external speech")
         print(f"  Ready to analyze: {len(transcript_texts)} transcripts")
 
         if not transcript_texts:
@@ -1943,7 +2022,7 @@ def main():
         # Build owner map from Gong call metadata (exact SF account name → AE first name)
         gong_owner_map = build_owner_map_from_calls(calls)
 
-        print("\n[4/4] Running Claude analysis ...")
+        print("\n[4/5] Running Claude analysis ...")
         analysis       = analyze_with_claude(config, transcript_texts, days, args.verbose)
         calls_count    = len(transcript_texts)
         # Prefer analysis-derived count (more reliable than sparse CRM metadata)
@@ -1952,7 +2031,7 @@ def main():
             count_accounts_from_analysis(analysis),
         )
 
-        print("  Extracting use cases ...")
+        print("\n[5/5] Extracting use cases ...")
         use_cases = extract_use_cases(config, analysis)
 
         # Save markdown + cache
@@ -2027,6 +2106,8 @@ def main():
 
     if args.dry_run:
         post_to_slack("", slack_msg, dry_run=True)
+    elif args.skip_slack:
+        print("\n[Publish] --skip-slack set — Slack post skipped")
     elif config["slack_bot_token"]:
         print(f"\n[Publish] Posting to {SLACK_CHANNEL} ...")
         post_to_slack(config["slack_bot_token"], slack_msg)

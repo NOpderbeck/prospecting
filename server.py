@@ -123,8 +123,11 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="P0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8003"],
-    allow_methods=["POST"],
+    allow_origins=[
+        "http://localhost:8003",
+        "https://forecast-dashboard-yskyvn2l2q-uc.a.run.app",
+    ],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 db_module.init_db(DB_PATH)
