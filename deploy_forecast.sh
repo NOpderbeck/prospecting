@@ -117,7 +117,7 @@ gcloud run jobs deploy hygiene-check \
   --region "${REGION}" \
   --service-account "${SA_EMAIL}" \
   --command="python3" \
-  --args="hygiene_check.py" \
+  --args="hygiene_check.py,--dry-run" \
   --set-secrets="SF_USERNAME=pen-sf-username:latest,SF_PASSWORD=pen-sf-password:latest,SF_SECURITY_TOKEN=pen-sf-token:latest,SLACK_BOT_TOKEN=pen-slack-user-token:latest" \
   --max-retries 1 \
   --task-timeout 5m \
