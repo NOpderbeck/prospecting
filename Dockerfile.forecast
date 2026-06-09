@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # App files — HTML is served from GCS, not baked into the image.
 # This means dashboard updates deploy via gsutil cp, not a Docker rebuild.
-COPY forecast_server.py forecast_refresh.py ./
+COPY forecast_server.py forecast_refresh.py hygiene_check.py ./
 
 # Cloud Run listens on $PORT (default 8080)
 ENV PORT=8080

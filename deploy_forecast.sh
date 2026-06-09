@@ -110,6 +110,20 @@ gcloud run jobs deploy "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
   --quiet
 
+# ── 5b. Deploy Cloud Run Job (pipeline hygiene) ───────────────────────────────
+echo "▶ Deploying Cloud Run job 'hygiene-check'..."
+gcloud run jobs deploy hygiene-check \
+  --image "${IMAGE}" \
+  --region "${REGION}" \
+  --service-account "${SA_EMAIL}" \
+  --command="python3" \
+  --args="hygiene_check.py" \
+  --set-secrets="SF_USERNAME=pen-sf-username:latest,SF_PASSWORD=pen-sf-password:latest,SF_SECURITY_TOKEN=pen-sf-token:latest,SLACK_BOT_TOKEN=pen-slack-user-token:latest" \
+  --max-retries 1 \
+  --task-timeout 5m \
+  --project="${PROJECT_ID}" \
+  --quiet
+
 # ── 6. Cloud Scheduler ────────────────────────────────────────────────────────
 echo "▶ Setting up Cloud Scheduler (${SCHEDULE} ${TIMEZONE})..."
 
@@ -138,6 +152,32 @@ else
     --quiet
 fi
 echo "  Scheduled: ${SCHEDULE} ${TIMEZONE}"
+
+# ── 6b. Cloud Scheduler — pipeline hygiene (Tuesdays 12pm PT) ────────────────
+echo "▶ Setting up hygiene-weekly scheduler (0 12 * * 2 America/Los_Angeles)..."
+HYGIENE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/hygiene-check:run"
+if gcloud scheduler jobs describe hygiene-weekly --location="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
+  gcloud scheduler jobs update http hygiene-weekly \
+    --location="${REGION}" \
+    --schedule="0 12 * * 2" \
+    --time-zone="America/Los_Angeles" \
+    --uri="${HYGIENE_URI}" \
+    --http-method=POST \
+    --oauth-service-account-email="${SA_EMAIL}" \
+    --project="${PROJECT_ID}" \
+    --quiet
+else
+  gcloud scheduler jobs create http hygiene-weekly \
+    --location="${REGION}" \
+    --schedule="0 12 * * 2" \
+    --time-zone="America/Los_Angeles" \
+    --uri="${HYGIENE_URI}" \
+    --http-method=POST \
+    --oauth-service-account-email="${SA_EMAIL}" \
+    --project="${PROJECT_ID}" \
+    --quiet
+fi
+echo "  Scheduled: every Tuesday at 12:00 PM PT"
 
 # ── 7. Grant run.invoker for IAP backend ──────────────────────────────────────
 echo "▶ Granting roles/run.invoker to ${SA_EMAIL} on service..."
