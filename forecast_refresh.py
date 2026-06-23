@@ -1352,7 +1352,7 @@ _Q2_26 = ["2026-04","2026-05","2026-06"]
 _VOL_TARGETS_M = {"q1": 32, "q2": 99, "q3": 366, "q4": 1009}
 _LOGO_TARGETS  = {
     "q1": {"net_new": 5,  "total": 23},
-    "q2": {"net_new": 30, "total": 54},
+    "q2": {"net_new": 40, "total": 54},
     "q3": {"net_new": 53, "total": 107},
     "q4": {"net_new": 59, "total": 166},
 }
