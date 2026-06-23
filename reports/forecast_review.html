@@ -3285,9 +3285,9 @@ function _renderVolumeKPIs(vd) {
   const q2Actual  = vd.q2_excl_top2 || 0;
   const q2Pct     = q2Target ? Math.round(q2Actual / q2Target * 100) : 0;
 
-  const today         = new Date();
   const junMtd        = vd.monthly_excl_top2?.['2026-06'] || 0;
-  const junDay        = (today.getMonth() === 5) ? today.getDate() : 30;
+  const [,asOfMo, asOfDy] = (vd.as_of || '').split('-').map(Number);
+  const junDay        = (asOfMo === 6) ? asOfDy : 30;
   const junProjected  = junDay > 0 ? Math.round(junMtd / junDay * 30) : junMtd;
   const q2Projected   = (vd.monthly_excl_top2?.['2026-04'] || 0)
                       + (vd.monthly_excl_top2?.['2026-05'] || 0)
@@ -3329,9 +3329,9 @@ function _renderVolumeProgress(vd) {
   const q2Actual  = vd.q2_excl_top2 || 0;
   const q2Pct     = q2Target ? Math.min(q2Actual / q2Target * 100, 100) : 0;
 
-  const today        = new Date();
   const junMtd       = vd.monthly_excl_top2?.['2026-06'] || 0;
-  const junDay       = (today.getMonth() === 5) ? today.getDate() : 30;
+  const [,_asOfMo, _asOfDy] = (vd.as_of || '').split('-').map(Number);
+  const junDay       = (_asOfMo === 6) ? _asOfDy : 30;
   const junProj      = junDay > 0 ? Math.round(junMtd / junDay * 30) : junMtd;
   const q2Proj       = (vd.monthly_excl_top2?.['2026-04'] || 0)
                      + (vd.monthly_excl_top2?.['2026-05'] || 0) + junProj;
