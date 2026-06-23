@@ -3294,8 +3294,12 @@ function _renderVolumeKPIs(vd) {
                       + junProjected;
   const q2PacePct = q2Target ? Math.round(q2Projected / q2Target * 100) : 0;
 
-  const activeCusts = (vd.customers_excl_top2 || []).filter(c =>
+  const custs = vd.customers_excl_top2 || [];
+  const activeCusts = custs.filter(c =>
     (c.monthly_calls?.['2026-05'] || 0) + (c.monthly_calls?.['2026-06'] || 0) > 0
+  ).length;
+  const totalCusts = custs.filter(c =>
+    Object.values(c.monthly_calls || {}).some(v => v > 0)
   ).length;
 
   const netNewTarget = vd.logo_targets?.q2?.net_new || 30;
@@ -3325,7 +3329,7 @@ function _renderVolumeKPIs(vd) {
     </div>
     <div class="card">
       <div class="card-title">Active Customers (May/Jun)</div>
-      <div class="metric-value" style="font-size:26px">${activeCusts}</div>
+      <div class="metric-value" style="font-size:26px">${activeCusts} <span style="font-size:14px;color:var(--text-dim);font-weight:400">of ${totalCusts}</span></div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">with calls in May or Jun · excl. largest 2</div>
     </div>
   `;
