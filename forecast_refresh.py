@@ -556,8 +556,10 @@ def build_activity(sf, id_map: dict) -> dict:
         sub  = (task.get("TaskSubtype") or "").strip()
         subj = (task.get("Subject") or "").lower()
         t_lo = t.lower()
+        # Gong auto-logs a Task for every recorded call — exclude these from the
+        # outbound mix. Real call data comes from the Gong API (build_gong_calls).
         if "[gong" in subj or "gong out" in subj or "gong in" in subj:
-            return "Call"
+            return None
         if "[apollo" in subj or "apollo seq" in subj:
             return "Email (Apollo)"
         if (
@@ -593,6 +595,8 @@ def build_activity(sf, id_map: dict) -> dict:
         except Exception:
             continue
         kind = _classify(task)
+        if kind is None:
+            continue
         by_type[kind] = by_type.get(kind, 0) + 1
         by_type_by_rep[owner_name][kind] = by_type_by_rep[owner_name].get(kind, 0) + 1
         for wi, (label, w_start, w_end) in enumerate(WEEKLY_WINDOWS):
@@ -712,12 +716,33 @@ def build_opp_sources(sf, id_map: dict) -> dict:
 
 # ── Section 6: gong_calls ─────────────────────────────────────────────────────
 
-def build_gong_calls() -> list:
-    print("  [6/8] Pulling Gong calls (last 7 days)...")
+MEETINGS_LOG_BLOB = "meetings_log.json"
+
+NICK_TEAM_EMAILS = {
+    "andrew.miller-mckeever@you.com": "Andrew Miller-McKeever",
+    "david.wacker@you.com":           "David Wacker",
+    "ryan.allred@you.com":            "Ryan Allred",
+    "ryan.reed@you.com":              "Ryan Reed",
+    "nick.opderbeck@you.com":         "Nick Opderbeck",
+}
+IVY_TEAM_EMAILS = {
+    "charlie.austin@you.com":  "Charlie Austin",
+    "haroon.anwar@you.com":    "Haroon Anwar",
+    "ryan.lowe@you.com":       "Ryan Lowe",
+    "seyar.karimi@you.com":    "Seyar Karimi",
+    "ivy.gress@you.com":       "Ivy Gress",
+}
+ALL_REP_EMAILS = {**NICK_TEAM_EMAILS, **IVY_TEAM_EMAILS}
+YOU_DOMAIN = "you.com"
+
+
+def build_gong_calls() -> dict:
+    """Returns {'calls': [...], 'meetings_14d': {'by_rep': {...}, ...}}"""
+    print("  [6/8] Pulling Gong calls (last 14 days)...")
 
     headers = gong_headers()
     now     = datetime.now(tz=timezone.utc)
-    from_dt = now - timedelta(days=7)
+    from_dt = now - timedelta(days=14)
 
     from_str = from_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     to_str   = now.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -766,20 +791,10 @@ def build_gong_calls() -> list:
         except Exception as e:
             print(f"    Warning: Gong extensive call fetch failed: {e}", file=sys.stderr)
 
-    # Step 3: parse and normalize
+    # Step 3: parse, normalize, and count external meetings per rep
     results = []
-    rep_email_domains = {
-        "andrew.miller-mckeever@you.com": "Andrew Miller-McKeever",
-        "david.wacker@you.com":           "David Wacker",
-        "ryan.allred@you.com":            "Ryan Allred",
-        "ryan.reed@you.com":              "Ryan Reed",
-        "nick.opderbeck@you.com":         "Nick Opderbeck",
-        "charlie.austin@you.com":         "Charlie Austin",
-        "haroon.anwar@you.com":           "Haroon Anwar",
-        "ryan.lowe@you.com":              "Ryan Lowe",
-        "seyar.karimi@you.com":           "Seyar Karimi",
-        "ivy.gress@you.com":              "Ivy Gress",
-    }
+    meetings_by_rep: dict[str, int] = {name: 0 for name in ALL_REP_EMAILS.values()}
+    accounts_by_rep: dict[str, set] = {name: set() for name in ALL_REP_EMAILS.values()}
 
     for call in calls_raw:
         call_id    = call.get("id") or ""
@@ -796,20 +811,25 @@ def build_gong_calls() -> list:
         elif "You - " in title:
             account = title.split("You - ", 1)[1].strip()
 
-        # Infer rep from parties
-        rep_name = ""
+        # Identify parties: rep attendees and whether any external party attended
         ext = extensive_map.get(call_id) or {}
         parties = ext.get("parties") or call.get("parties") or []
+        rep_name = ""
+        has_external = False
         for party in parties:
-            email = (party.get("emailAddress") or "").lower()
-            if email in rep_email_domains:
-                rep_name = rep_email_domains[email]
-                break
+            email  = (party.get("emailAddress") or "").lower()
+            domain = email.split("@")[1] if "@" in email else ""
+            if email in ALL_REP_EMAILS:
+                if not rep_name:
+                    rep_name = ALL_REP_EMAILS[email]
+            elif domain and domain != YOU_DOMAIN:
+                has_external = True
 
-        # Fallback: primary user
-        if not rep_name:
-            primary = call.get("primaryUserId") or ""
-            # Can't resolve without user map; leave blank
+        # Count as external meeting for the rep if at least one non-you.com party attended
+        if rep_name and has_external:
+            meetings_by_rep[rep_name] = meetings_by_rep.get(rep_name, 0) + 1
+            if account:
+                accounts_by_rep[rep_name].add(account)
 
         results.append({
             "title":        title,
@@ -818,10 +838,85 @@ def build_gong_calls() -> list:
             "duration_min": round(duration / 60, 1) if duration else 0,
             "url":          url,
             "rep":          rep_name,
+            "has_external": has_external,
         })
 
-    print(f"    Gong: {len(results)} calls parsed")
-    return results
+    nick_total = sum(meetings_by_rep.get(n, 0) for n in NICK_TEAM_EMAILS.values())
+    ivy_total  = sum(meetings_by_rep.get(n, 0) for n in IVY_TEAM_EMAILS.values())
+    meetings_14d = {
+        "by_rep":          meetings_by_rep,
+        "accounts_by_rep": {k: sorted(v) for k, v in accounts_by_rep.items()},
+        "nick_team_total": nick_total,
+        "ivy_team_total":  ivy_total,
+        "period_start":    from_dt.strftime("%Y-%m-%d"),
+        "period_end":      now.strftime("%Y-%m-%d"),
+    }
+    print(f"    Gong: {len(results)} calls parsed, {nick_total + ivy_total} external meetings (14d)")
+    return {"calls": results, "meetings_14d": meetings_14d}
+
+
+# ── Meetings log (GCS accumulator) ───────────────────────────────────────────
+
+def persist_meetings_log(meetings_14d: dict) -> list[dict]:
+    """
+    Read meetings_log.json from GCS (or start fresh), upsert this week's entry
+    keyed by the Monday of the current week, and re-upload. Returns the full log.
+    """
+    from datetime import date, timedelta
+
+    today     = date.today()
+    week_key  = (today - timedelta(days=today.weekday())).isoformat()  # Monday ISO
+    week_label = (today - timedelta(days=today.weekday())).strftime("Wk of %b %-d")
+
+    entry = {
+        "week":            week_key,
+        "week_label":      week_label,
+        "recorded_at":     datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "period_start":    meetings_14d["period_start"],
+        "period_end":      meetings_14d["period_end"],
+        "by_rep":          meetings_14d["by_rep"],
+        "accounts_by_rep": meetings_14d.get("accounts_by_rep", {}),
+        "nick_team_total": meetings_14d["nick_team_total"],
+        "ivy_team_total":  meetings_14d["ivy_team_total"],
+    }
+
+    log: list[dict] = []
+
+    if GCS_BUCKET:
+        try:
+            from google.cloud import storage as _gcs
+            client = _gcs.Client()
+            bucket = client.bucket(GCS_BUCKET)
+            blob   = bucket.blob(MEETINGS_LOG_BLOB)
+            if blob.exists():
+                existing = json.loads(blob.download_as_text())
+                log = existing if isinstance(existing, list) else existing.get("entries", [])
+        except Exception as e:
+            print(f"    Warning: could not read meetings_log from GCS: {e}", file=sys.stderr)
+
+    # Upsert: replace existing entry for same week, or append
+    log = [e for e in log if e.get("week") != week_key]
+    log.append(entry)
+    log.sort(key=lambda e: e.get("week", ""))
+
+    if GCS_BUCKET:
+        try:
+            from google.cloud import storage as _gcs
+            client = _gcs.Client()
+            bucket = client.bucket(GCS_BUCKET)
+            blob   = bucket.blob(MEETINGS_LOG_BLOB)
+            blob.upload_from_string(json.dumps(log, indent=2), content_type="application/json")
+            print(f"    Meetings log updated: {len(log)} weeks → gs://{GCS_BUCKET}/{MEETINGS_LOG_BLOB}")
+        except Exception as e:
+            print(f"    Warning: could not write meetings_log to GCS: {e}", file=sys.stderr)
+    else:
+        # Local fallback
+        log_path = OUTPUT_PATH.replace("forecast_data.json", "meetings_log.json")
+        with open(log_path, "w") as f:
+            json.dump(log, f, indent=2)
+        print(f"    Meetings log saved locally: {log_path}")
+
+    return log
 
 
 # ── Section 7: usage_signals ──────────────────────────────────────────────────
@@ -995,9 +1090,15 @@ def build_usage_signals(sf) -> dict:
 
 # ── Section 8: paygo ──────────────────────────────────────────────────────────
 
-PAYGO_REPORT_ID        = "00OVq00000D8YD7MAN"
+PAYGO_REPORT_ID     = "00OVq00000D8YD7MAN"
 PAYGO_TARGET_TEAM   = 20   # per team
 PAYGO_TARGET_TOTAL  = 40   # combined
+
+# Deals that qualify as PayGo but don't follow the standard naming convention.
+# Each entry is a Salesforce Opportunity ID.
+PAYGO_EXCEPTION_IDS = {
+    "006Vq00000ZPkhpIAD",  # HPE Juniper Networks — Web+News Search API
+}
 
 def build_paygo(sf, id_map: dict) -> dict:
     print("  [8/9] Pulling PayGo data...")
@@ -1039,15 +1140,16 @@ def build_paygo(sf, id_map: dict) -> dict:
 
     # ── Enrich deals with tier + close date via SOQL ──────────────────────────
     try:
+        exc_ids_sql = ", ".join(f"'{i}'" for i in PAYGO_EXCEPTION_IDS)
         deal_rows = soql(sf, f"""
-            SELECT Name, Account.Id, Account.Name, Account.Account_Tier__c,
+            SELECT Id, Name, Account.Id, Account.Name, Account.Account_Tier__c,
                    OwnerId, Amount, CloseDate
             FROM Opportunity
             WHERE IsWon = true
             AND CloseDate >= {Q2_START}
             AND CloseDate <= {Q2_END}
             AND OwnerId IN ('{all_ids_str}')
-            AND Name LIKE '%PayGo%'
+            AND (Name LIKE '%PayGo%' OR Id IN ({exc_ids_sql}))
             ORDER BY CloseDate DESC
         """)
         deals = []  # rebuild from SOQL — more reliable
@@ -1056,23 +1158,28 @@ def build_paygo(sf, id_map: dict) -> dict:
             name_parts = [p.strip() for p in (d.get("Name") or "").split("|")]
             product = name_parts[3] if len(name_parts) > 3 else "PayGo"
             sub     = name_parts[4] if len(name_parts) > 4 else ""
+            rep_name = id_to_name.get(d.get("OwnerId") or "", "")
             deals.append({
+                "opp_id":     d.get("Id") or "",
                 "account":    acct.get("Name") or name_parts[0] if name_parts else "",
                 "account_id": acct.get("Id") or "",
                 "tier":       acct.get("Account_Tier__c") or "—",
-                "rep":        id_to_name.get(d.get("OwnerId") or "", ""),
+                "rep":        rep_name,
                 "product":    product,
                 "sub":        sub,
                 "amount":     d.get("Amount") or 0,
                 "close_date": (d.get("CloseDate") or "")[:10],
             })
+            # Exception deals weren't in the SF report so count_by_rep missed them
+            if d.get("Id") in PAYGO_EXCEPTION_IDS and rep_name in count_by_rep:
+                count_by_rep[rep_name] = count_by_rep.get(rep_name, 0) + 1
     except Exception as e:
         print(f"    Warning: PayGo SOQL enrichment failed: {e}", file=sys.stderr)
 
     # ── All-time PAGO deals (for usage health view) ───────────────────────────
     try:
         all_pago_rows = soql(sf, f"""
-            SELECT Name, Account.Id, Account.Name, Account.Account_Tier__c,
+            SELECT Id, Name, Account.Id, Account.Name, Account.Account_Tier__c,
                    OwnerId, Amount, CloseDate,
                    Vol_Estimate_API_Calls_After_90_Day__c,
                    Volume_Estimate_API_Monthly_Calls__c,
@@ -1080,7 +1187,7 @@ def build_paygo(sf, id_map: dict) -> dict:
             FROM Opportunity
             WHERE IsWon = true
             AND OwnerId IN ('{all_ids_str}')
-            AND Name LIKE '%PayGo%'
+            AND (Name LIKE '%PayGo%' OR Id IN ({exc_ids_sql}))
             ORDER BY CloseDate DESC
         """)
         all_pago_deals = []
@@ -1133,7 +1240,7 @@ def build_paygo(sf, id_map: dict) -> dict:
             AND CloseDate >= {FY_START}
             AND CloseDate <= {FY_END}
             AND OwnerId IN ('{all_ids_str}')
-            AND Name LIKE '%PayGo%'
+            AND (Name LIKE '%PayGo%' OR Id IN ({exc_ids_sql}))
             GROUP BY OwnerId
         """)
         for r in fy_rows:
@@ -1142,14 +1249,14 @@ def build_paygo(sf, id_map: dict) -> dict:
                 fy_count_by_rep[name] = r.get("cnt") or r.get("expr0") or 0
 
         fy_deal_rows = soql(sf, f"""
-            SELECT Name, Account.Id, Account.Name, Account.Account_Tier__c,
+            SELECT Id, Name, Account.Id, Account.Name, Account.Account_Tier__c,
                    OwnerId, Amount, CloseDate
             FROM Opportunity
             WHERE IsWon = true
             AND CloseDate >= {FY_START}
             AND CloseDate <= {FY_END}
             AND OwnerId IN ('{all_ids_str}')
-            AND Name LIKE '%PayGo%'
+            AND (Name LIKE '%PayGo%' OR Id IN ({exc_ids_sql}))
             ORDER BY CloseDate DESC
         """)
         for d in fy_deal_rows:
@@ -1218,6 +1325,188 @@ def compute_wow_delta(new_forecast: dict) -> dict:
     except Exception as e:
         print(f"  Warning: WoW delta computation failed: {e}", file=sys.stderr)
         return {}
+
+
+# ── Google Sheets / Volume helpers ────────────────────────────────────────────
+
+_SHEETS_TOKEN_FILE = os.path.join(os.path.dirname(__file__), ".credentials", "google_token_forecast.json")
+_SHEETS_SCOPES = [
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/drive",
+]
+
+VOLUMES_SHEET_ID  = os.environ.get("VOLUMES_SHEET_ID", "1yW9ndOa1Ab-DRh82SKLvTvJmRSRpLzm_")
+VOLUMES_GID       = int(os.environ.get("VOLUMES_GID", "553080642"))
+VOLUMES_SHEET_GID = 2074151923
+
+_VOL_MONTH_KEYS = [
+    "2025-01","2025-02","2025-03","2025-04","2025-05","2025-06",
+    "2025-07","2025-08","2025-09","2025-10","2025-11","2025-12",
+    "2026-01","2026-02","2026-03","2026-04","2026-05","2026-06",
+]
+_TOP2_PREFIXES = ("bytedance", "duckduckgo")
+_Q1_26 = ["2026-01","2026-02","2026-03"]
+_Q2_26 = ["2026-04","2026-05","2026-06"]
+
+# Quarterly targets (millions of API calls) — update each quarter
+_VOL_TARGETS_M = {"q1": 32, "q2": 99, "q3": 366, "q4": 1009}
+_LOGO_TARGETS  = {
+    "q1": {"net_new": 5,  "total": 23},
+    "q2": {"net_new": 30, "total": 54},
+    "q3": {"net_new": 53, "total": 107},
+    "q4": {"net_new": 59, "total": 166},
+}
+
+
+def _get_sheets_creds():
+    from google.auth.transport.requests import Request
+
+    # Prefer local user OAuth token (local dev / first-run auth)
+    if os.path.exists(_SHEETS_TOKEN_FILE):
+        from google.oauth2.credentials import Credentials
+        creds = Credentials.from_authorized_user_file(_SHEETS_TOKEN_FILE, _SHEETS_SCOPES)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        if creds.valid:
+            return creds
+
+    # Fall back to ADC (service account in Cloud Run)
+    import google.auth
+    creds, _ = google.auth.default(scopes=_SHEETS_SCOPES)
+    creds.refresh(Request())
+    return creds
+
+
+def build_volume_data() -> dict:
+    """Download API call volume xlsx from Drive and parse it with openpyxl."""
+    import io
+    import openpyxl
+    from googleapiclient.discovery import build as _gbuild
+    from googleapiclient.http import MediaIoBaseDownload
+
+    creds = _get_sheets_creds()
+    drive = _gbuild("drive", "v3", credentials=creds, cache_discovery=False)
+
+    # Download the raw xlsx file
+    request = drive.files().get_media(fileId=VOLUMES_SHEET_ID)
+    buf = io.BytesIO()
+    downloader = MediaIoBaseDownload(buf, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    buf.seek(0)
+
+    wb = openpyxl.load_workbook(buf, data_only=True, read_only=True)
+
+    # Find the sheet: match by gid (_id), then name keywords, then first tab
+    target_sheet = None
+    for ws in wb.worksheets:
+        if getattr(ws, '_id', None) == VOLUMES_GID:
+            target_sheet = ws
+            break
+    if target_sheet is None:
+        for name in wb.sheetnames:
+            if "API" in name or "Volume" in name or "Call" in name:
+                target_sheet = wb[name]
+                break
+    if target_sheet is None:
+        target_sheet = wb.worksheets[0]
+    print(f"      Reading sheet tab: '{target_sheet.title}'")
+
+    # Read all rows
+    rows = []
+    for row in target_sheet.iter_rows(values_only=True):
+        rows.append(list(row))
+
+    # Find the per-customer header row: col 1 contains "Customer" AND col 6+ has a date.
+    # This avoids false-matching section headers like "API Calls By Customer" (which have
+    # no date cells in the date columns).
+    header_idx = None
+    for i, row in enumerate(rows):
+        if len(row) > 6 and row[1] is not None and "customer" in str(row[1]).lower():
+            # Confirm a date header exists at col 6+
+            has_date = any(
+                hasattr(row[c], "month") and hasattr(row[c], "day")
+                for c in range(6, min(len(row), 12))
+            )
+            if has_date:
+                header_idx = i
+                break
+
+    if header_idx is None:
+        return {"error": "Could not find Customer header row in volume spreadsheet"}
+
+    # Build month_key → column index map from date headers in the header row.
+    # Dates are stored as Python datetime objects where:
+    #   .month = actual month number, .day = 2-digit year (e.g. day=25 → 2025)
+    header_row = rows[header_idx]
+    month_col_map: dict = {}
+    for col_idx, cell in enumerate(header_row):
+        if col_idx < 6 or cell is None:
+            continue
+        if hasattr(cell, "month") and hasattr(cell, "day"):
+            mk = f"{2000 + cell.day}-{cell.month:02d}"
+            if mk in _VOL_MONTH_KEYS:
+                month_col_map[mk] = col_idx
+
+    def _int(s):
+        if s is None:
+            return 0
+        try:
+            return int(float(str(s).strip().replace(",", "").replace(" ", "")))
+        except (ValueError, TypeError):
+            return 0
+
+    def _str(s):
+        if s is None:
+            return ""
+        if hasattr(s, "strftime"):
+            return s.strftime("%Y-%m-%d")
+        return str(s).strip()
+
+    customers = []
+    for row in rows[header_idx + 1:]:
+        if not row or len(row) < 2:
+            break
+        name = _str(row[1]) if row[1] is not None else ""
+        if not name:
+            break  # end of customer data
+        lname = name.lower()
+        if lname.startswith("total") or lname.startswith("%") or "top 2" in lname:
+            continue  # skip aggregate/summary rows
+        close_date = _str(row[3]) if len(row) > 3 else ""
+        monthly = {mk: 0 for mk in _VOL_MONTH_KEYS}
+        for mk, col_idx in month_col_map.items():
+            if col_idx < len(row):
+                monthly[mk] = _int(row[col_idx])
+        q1_total = sum(monthly.get(m, 0) for m in _Q1_26)
+        q2_total = sum(monthly.get(m, 0) for m in _Q2_26)
+        customers.append({
+            "name":          name,
+            "close_date":    close_date,
+            "monthly_calls": monthly,
+            "q1_total":      q1_total,
+            "q2_total":      q2_total,
+            "is_top2":       any(name.lower().startswith(p) for p in _TOP2_PREFIXES),
+        })
+
+    wb.close()
+
+    excl = [c for c in customers if not c["is_top2"]]
+    monthly_excl = {mk: sum(c["monthly_calls"].get(mk, 0) for c in excl) for mk in _VOL_MONTH_KEYS}
+    q2_excl = sum(monthly_excl.get(m, 0) for m in _Q2_26)
+    q1_excl = sum(monthly_excl.get(m, 0) for m in _Q1_26)
+
+    return {
+        "targets_m":           _VOL_TARGETS_M,
+        "logo_targets":        _LOGO_TARGETS,
+        "monthly_excl_top2":   monthly_excl,
+        "q2_excl_top2":        q2_excl,
+        "q1_excl_top2":        q1_excl,
+        "customers_excl_top2": excl,
+        "top2":                sorted(set(c["name"] for c in customers if c["is_top2"])),
+        "as_of":               datetime.now().strftime("%Y-%m-%d"),
+    }
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -1294,13 +1583,20 @@ def main():
         print(f"  [5/8] ERROR: opp_sources: {e}", file=sys.stderr)
         output["opp_sources"] = {"error": str(e)}
 
-    # 6. Gong calls
+    # 6. Gong calls + external meetings log
     try:
-        output["gong_calls"] = build_gong_calls()
-        print(f"  [6/9] Done: gong_calls ({len(output['gong_calls'])} calls)")
+        gong_result = build_gong_calls()
+        output["gong_calls"]    = gong_result["calls"]
+        output["meetings_14d"]  = gong_result["meetings_14d"]
+        output["meetings_log"]  = persist_meetings_log(gong_result["meetings_14d"])
+        n_calls    = len(output["gong_calls"])
+        n_meetings = gong_result["meetings_14d"]["nick_team_total"] + gong_result["meetings_14d"]["ivy_team_total"]
+        print(f"  [6/9] Done: gong_calls ({n_calls} calls, {n_meetings} external meetings tracked)")
     except Exception as e:
         print(f"  [6/9] ERROR: gong_calls: {e}", file=sys.stderr)
-        output["gong_calls"] = {"error": str(e)}
+        output["gong_calls"]   = {"error": str(e)}
+        output["meetings_14d"] = {}
+        output["meetings_log"] = []
 
     # 7. Usage signals
     try:
@@ -1322,10 +1618,20 @@ def main():
     # 9. WoW delta (reads prev snapshot; must run before we overwrite)
     try:
         output["wow_delta"] = compute_wow_delta(output.get("forecast") or {})
-        print("  [9/9] Done: wow_delta")
+        print("  [9/10] Done: wow_delta")
     except Exception as e:
-        print(f"  [9/9] ERROR: wow_delta: {e}", file=sys.stderr)
+        print(f"  [9/10] ERROR: wow_delta: {e}", file=sys.stderr)
         output["wow_delta"] = {"error": str(e)}
+
+    # 10. Volume data (Google Sheets)
+    try:
+        output["volume_data"] = build_volume_data()
+        vd = output["volume_data"]
+        cust_count = len(vd.get("customers_excl_top2") or [])
+        print(f"  [10/10] Done: volume_data ({cust_count} customers, Q2 excl top2: {vd.get('q2_excl_top2',0):,})")
+    except Exception as e:
+        print(f"  [10/10] ERROR: volume_data: {e}", file=sys.stderr)
+        output["volume_data"] = {"error": str(e)}
 
     # Persist snapshots
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)

@@ -19,6 +19,15 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
+# Load .env when running locally (Cloud Run sets env vars directly)
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_path)
+    except ImportError:
+        pass
+
 GCS_BUCKET = os.getenv("GCS_BUCKET", "")
 BASE_DIR = Path(__file__).parent
 
@@ -229,6 +238,48 @@ async def refresh_forecast():
         return {"ok": True, "message": "Refresh job triggered — data will update in ~2 min"}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/account-search")
+async def account_search(q: str = ""):
+    """Search Salesforce accounts by name and return 30d API usage."""
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    try:
+        safe_q = q.replace("'", "\\'")
+        accounts = _sf_query(f"""
+            SELECT Id, Name, Owner.Name
+            FROM Account
+            WHERE Name LIKE '%{safe_q}%'
+            AND IsDeleted = false
+            ORDER BY Name
+            LIMIT 15
+        """).get("records", [])
+        if not accounts:
+            return []
+        ids_str = "', '".join(a["Id"] for a in accounts)
+        usage = _sf_query(f"""
+            SELECT Account__c, API_Calls_Last_30_Days__c
+            FROM Product_User__c
+            WHERE Account__c IN ('{ids_str}')
+        """).get("records", [])
+        totals: dict[str, float] = {}
+        for r in usage:
+            acct_id = r.get("Account__c") or ""
+            calls   = r.get("API_Calls_Last_30_Days__c") or 0
+            totals[acct_id] = totals.get(acct_id, 0) + calls
+        return [
+            {
+                "account_id": a["Id"],
+                "account":    a["Name"],
+                "owner":      (a.get("Owner") or {}).get("Name"),
+                "total_30d":  totals.get(a["Id"], 0),
+            }
+            for a in accounts
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

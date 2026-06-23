@@ -393,7 +393,8 @@
   <button class="tab-btn" data-tab="tab-paygo" onclick="showTab('tab-paygo')">PayGo</button>
   <button class="tab-btn" data-tab="tab-changes" onclick="showTab('tab-changes')">Deal Changes</button>
   <button class="tab-btn" data-tab="tab-activity" onclick="showTab('tab-activity')">AE Activity</button>
-  <button class="tab-btn" data-tab="tab-usage" onclick="showTab('tab-usage')">Usage Signals</button>
+  <button class="tab-btn" data-tab="tab-usage" onclick="showTab('tab-usage')">Usage</button>
+  <button class="tab-btn" data-tab="tab-volumes" onclick="showTab('tab-volumes')">Volumes</button>
   <button class="tab-btn" data-tab="tab-sources" onclick="showTab('tab-sources')">Opp Sources</button>
 </div>
 
@@ -640,13 +641,21 @@
   <div class="grid-2" style="margin-bottom:16px">
     <div class="card" style="min-width:0">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin-bottom:0">Outbound Approach Mix</div>
-        <div style="display:flex;gap:6px">
-          <button class="qpb-toggle active" id="mix-view-all" onclick="setMixView('all')">All Reps</button>
-          <button class="qpb-toggle" id="mix-view-ae" onclick="setMixView('ae')">By AE</button>
-          <select id="mix-ae-select" onchange="renderOutboundMix()"
-            style="display:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-family:var(--mono);font-size:11px;padding:3px 8px;cursor:pointer">
-          </select>
+        <div class="card-title" style="margin-bottom:0" id="mix-card-title">Outbound Approach Mix</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <!-- Mode toggle: Mix vs Meetings -->
+          <div style="display:flex;gap:4px;border:1px solid var(--border);border-radius:6px;padding:2px">
+            <button class="qpb-toggle active" id="mix-mode-mix"     onclick="setMixMode('mix')"      style="border:none">Mix</button>
+            <button class="qpb-toggle"        id="mix-mode-meetings" onclick="setMixMode('meetings')" style="border:none">Meetings</button>
+          </div>
+          <!-- All Reps / By AE — only shown in Mix mode -->
+          <div id="mix-rep-toggles" style="display:flex;gap:6px">
+            <button class="qpb-toggle active" id="mix-view-all" onclick="setMixView('all')">All Reps</button>
+            <button class="qpb-toggle"        id="mix-view-ae"  onclick="setMixView('ae')">By AE</button>
+            <select id="mix-ae-select" onchange="renderOutboundMix()"
+              style="display:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-family:var(--mono);font-size:11px;padding:3px 8px;cursor:pointer">
+            </select>
+          </div>
         </div>
       </div>
       <div class="chart-wrap" style="height:260px"><canvas id="chart-outbound-mix"></canvas></div>
@@ -683,12 +692,49 @@
   </div>
 </div>
 
+<!-- ===================== TAB 7: VOLUMES ===================== -->
+<div class="tab-content" id="tab-volumes">
+  <div class="grid-4" id="vol-kpis"></div>
+  <div class="card grid-1" style="margin-bottom:10px" id="vol-progress-card"></div>
+  <div class="card grid-1" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div class="card-title" style="margin-bottom:0" id="vol-chart-title">Monthly API Call Volume — Excl. ByteDance &amp; DuckDuckGo</div>
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
+        <button class="qpb-period active" id="vol-view-monthly"   onclick="setVolView('monthly',this)">Monthly</button>
+        <button class="qpb-period"        id="vol-view-quarterly" onclick="setVolView('quarterly',this)">Volume</button>
+        <button class="qpb-period"        id="vol-view-logos"     onclick="setVolView('logos',this)">Logos</button>
+      </div>
+    </div>
+    <div style="height:200px;position:relative"><canvas id="vol-chart"></canvas></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:8px" id="vol-chart-legend"></div>
+  </div>
+  <div class="card" style="overflow-x:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div class="card-title" style="margin-bottom:0">Customer Volume Breakdown</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim)" id="vol-as-of"></span>
+        <div style="position:relative;margin-left:auto">
+          <input type="text" id="vol-search" placeholder="// filter customers…" autocomplete="off"
+            oninput="onVolSearch(this.value)"
+            style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:11px;padding:5px 26px 5px 9px;outline:none;letter-spacing:0.03em;width:200px">
+          <span id="vol-search-clear" onclick="onVolSearch('');document.getElementById('vol-search').value=''" title="Clear"
+            style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--text-dim);font-size:12px;line-height:1;user-select:none">✕</span>
+        </div>
+      </div>
+    </div>
+    <table class="data-table" id="vol-table">
+      <thead id="vol-thead"></thead>
+      <tbody id="vol-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
 <!-- ===================== TAB 6: USAGE SIGNALS ===================== -->
 <div class="tab-content" id="tab-usage">
   <!-- Top-level view toggle + team filter -->
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-    <button id="usage-view-btn-pago"   class="qpb-toggle active" onclick="setUsageView('pago')">PayGo Accounts</button>
-    <button id="usage-view-btn-target" class="qpb-toggle"        onclick="setUsageView('target')">Target Accounts</button>
+    <button id="usage-view-btn-target" class="qpb-toggle active"  onclick="setUsageView('target')">Target Accounts</button>
+    <button id="usage-view-btn-pago"   class="qpb-toggle"         onclick="setUsageView('pago')">PayGo Accounts</button>
     <div style="margin-left:auto;display:flex;gap:6px" id="usage-team-btns">
       <button class="qpb-toggle active" onclick="setUsageTeam('all',this)">All</button>
       <button class="qpb-toggle"        onclick="setUsageTeam('nick',this)">Team Nick</button>
@@ -697,7 +743,7 @@
   </div>
 
   <!-- ── Target Accounts view ── -->
-  <div id="usage-target-view" style="display:none">
+  <div id="usage-target-view">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px">
       <div class="sub-tabs" style="margin-bottom:0">
         <button class="sub-tab active" onclick="showUsageTab('tier1',this)">Tier 1</button>
@@ -706,8 +752,23 @@
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
         <span style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Customers</span>
-        <button id="usage-cust-toggle" onclick="toggleUsageCustomers()" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border-hi);background:var(--bg-card);color:#a78bfa;font-size:11px;cursor:pointer;font-family:inherit;font-weight:600">Show</button>
+        <button id="usage-cust-toggle" onclick="toggleUsageCustomers()" style="padding:4px 10px;border-radius:6px;border:1px solid #f59e0b;background:var(--bg-card);color:#f59e0b;font-size:11px;cursor:pointer;font-family:inherit;font-weight:600">Hide</button>
       </div>
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-bottom:10px;padding:6px 10px;border-left:2px solid var(--border-hi);background:rgba(255,255,255,0.02)">
+      // Showing target accounts <strong style="color:var(--text)">with API usage data only</strong> — not all target accounts are represented
+    </div>
+    <!-- Account search -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+    <div style="position:relative;z-index:300;width:33%" id="usage-search-wrap">
+      <input type="text" id="usage-search-input" placeholder="// Search accounts…" autocomplete="off"
+        oninput="onUsageSearch(this.value)" onkeydown="onUsageSearchKey(event)"
+        style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border-hi);color:var(--text);font-family:var(--mono);font-size:11px;padding:7px 32px 7px 10px;outline:none;letter-spacing:0.03em">
+      <span id="usage-search-clear" onclick="clearUsageSearch()" title="Clear"
+        style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--text-dim);font-size:13px;line-height:1;user-select:none">✕</span>
+      <div id="usage-search-dropdown"
+        style="display:none;position:absolute;top:100%;left:0;right:0;z-index:400;background:var(--surface);border:1px solid var(--border-hi);border-top:none;max-height:360px;overflow-y:auto;box-shadow:0 8px 28px rgba(0,0,0,0.15)"></div>
+    </div>
     </div>
     <div class="signal-chips" id="signal-chips"></div>
     <div class="card" style="overflow-x:auto">
@@ -719,7 +780,7 @@
   </div>
 
   <!-- ── PayGo Accounts view ── -->
-  <div id="usage-pago-view">
+  <div id="usage-pago-view" style="display:none">
     <div style="display:flex;gap:6px;margin-bottom:10px" id="pago-period-btns">
       <button class="qpb-toggle"        onclick="setPagoPeriod('all',this)">All Time</button>
       <button class="qpb-toggle"        onclick="setPagoPeriod('fy',this)">FY</button>
@@ -812,6 +873,14 @@ async function triggerRefresh() {
 
   try {
     const resp = await _apiFetch('/api/refresh-forecast', { method: 'POST' });
+    if (resp.status === 401 || resp.status === 403) {
+      _showIapExpired();
+      throw new Error('IAP session expired');
+    }
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Server error ${resp.status}: ${text.slice(0, 120)}`);
+    }
     const result = await resp.json();
     if (!result.ok) throw new Error(result.error || 'Job trigger failed');
 
@@ -826,7 +895,7 @@ async function triggerRefresh() {
     }, 1000);
 
     let reloaded = false;
-    for (let attempt = 0; attempt < 30; attempt++) {    // poll up to ~2.5 min
+    for (let attempt = 0; attempt < 48; attempt++) {    // poll up to ~4 min
       await new Promise(r => setTimeout(r, 5000));      // wait 5s between checks
       try {
         const check = await _apiFetch('./forecast_data.json?t=' + Date.now());
@@ -921,6 +990,7 @@ function renderAll() {
   renderActivity();
   renderOppSources();
   renderUsage();
+  renderVolumes();
   loadPAGOUsage(); // default view is PayGo — kick off live SF fetch immediately
 }
 
@@ -2217,6 +2287,18 @@ function getActWeekSlice() {
 }
 
 let _mixView = 'all';
+let _mixMode = 'mix';      // 'mix' | 'meetings'
+
+function setMixMode(mode) {
+  _mixMode = mode;
+  document.getElementById('mix-mode-mix').classList.toggle('active', mode === 'mix');
+  document.getElementById('mix-mode-meetings').classList.toggle('active', mode === 'meetings');
+  document.getElementById('mix-rep-toggles').style.display = mode === 'mix' ? 'flex' : 'none';
+  document.getElementById('mix-card-title').textContent =
+    mode === 'meetings' ? 'External Meetings by Week' : 'Outbound Approach Mix';
+  if (mode === 'meetings') renderExternalMeetings();
+  else                     renderOutboundMix();
+}
 
 function setMixView(view) {
   _mixView = view;
@@ -2224,6 +2306,81 @@ function setMixView(view) {
   document.getElementById('mix-view-ae').classList.toggle('active', view === 'ae');
   document.getElementById('mix-ae-select').style.display = view === 'ae' ? '' : 'none';
   renderOutboundMix();
+}
+
+function renderExternalMeetings() {
+  const log = data?.meetings_log;
+  if (!log || !log.length) {
+    destroyChart('chart-outbound-mix');
+    return;
+  }
+
+  // Active reps sorted by total meetings desc
+  const totals = {};
+  ALL_REPS.forEach(rep => {
+    totals[rep] = log.reduce((s, e) => s + ((e.by_rep || {})[rep] || 0), 0);
+  });
+  const activeReps = ALL_REPS.filter(rep => totals[rep] > 0)
+                              .sort((a, b) => totals[b] - totals[a]);
+
+  // One dataset per week so we get a stacked breakdown over time
+  const WEEK_PALETTE = ['#00c8e8','#a78bfa','#f59e0b','#00e5a0','#f05252','#38bdf8','#fb923c','#e879f9','#4ade80','#94a3b8','#64748b','#ec4899'];
+  const datasets = log.map((entry, i) => ({
+    label: entry.week_label || entry.week,
+    data: activeReps.map(rep => (entry.by_rep || {})[rep] || 0),
+    backgroundColor: WEEK_PALETTE[i % WEEK_PALETTE.length],
+    borderRadius: 2,
+    stack: 'meetings',
+  }));
+
+  destroyChart('chart-outbound-mix');
+  new Chart(document.getElementById('chart-outbound-mix'), {
+    type: 'bar',
+    data: { labels: activeReps.map(r => { const p = r.split(' '); return `${p[0]} ${p[p.length-1][0]}.`; }), datasets },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const { dataIndex, datasetIndex } = elements[0];
+        const repName = activeReps[dataIndex];
+        const entry   = log[datasetIndex];
+        if (!repName || !entry) return;
+        const accounts = (entry.accounts_by_rep || {})[repName] || [];
+        openMtgModal(repName, entry.week_label || entry.week, accounts);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
+      plugins: {
+        legend: {
+          display: log.length > 1,
+          labels: { boxWidth: 12, font: { family: "'JetBrains Mono', monospace", size: 11 } }
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => activeReps[items[0].dataIndex],
+            label: ctx => ctx.raw > 0 ? ` ${ctx.dataset.label}: ${ctx.raw}` : null,
+            footer: (items) => `Total: ${totals[activeReps[items[0].dataIndex]]} meetings`,
+          }
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          beginAtZero: true,
+          grid: { color: 'rgba(148,163,184,0.12)' },
+          ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 }, stepSize: 1 }
+        },
+        y: {
+          stacked: true,
+          grid: { display: false },
+          ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } }
+        }
+      }
+    }
+  });
 }
 
 function renderOutboundMix() {
@@ -2509,7 +2666,7 @@ function renderUsage() {
 }
 
 // ── Usage view toggle (Target Accounts / PAGO Accounts) ──────────────────────
-let _usageView = 'pago';
+let _usageView = 'target';
 let _usageTeam = 'all';  // 'all' | 'nick' | 'ivy'
 
 function setUsageTeam(team, btn) {
@@ -2783,7 +2940,7 @@ function renderPAGOTable() {
 // ── Target accounts controls ──────────────────────────────────────────────────
 let _usageSortKey = 'signal';
 let _usageSortDir = 1;
-let _usageShowCustomers = false;
+let _usageShowCustomers = true;
 let _usageSignalFilters = new Set(); // empty = show all
 
 function toggleSignalFilter(key) {
@@ -2847,6 +3004,143 @@ function signalSortScore(signals) {
   if (!signals || !signals.length) return 999;
   const scores = signals.map(s => SIGNAL_SORT_ORDER.indexOf(s));
   return Math.min(...scores.filter(s => s >= 0));
+}
+
+// ── Target account search ──────────────────────────────────────────────────────
+let _usageSearch = '';
+let _usageSearchTimer = null;
+
+function onUsageSearch(val) {
+  _usageSearch = val.trim().toLowerCase();
+  document.getElementById('usage-search-clear').style.display = val ? '' : 'none';
+  const dd = document.getElementById('usage-search-dropdown');
+  if (!_usageSearch) { dd.style.display = 'none'; return; }
+
+  // Render local matches immediately
+  _renderUsageSearchDropdown([]);
+
+  // Debounce SF fallback (fires if query >= 2 chars after 350ms)
+  clearTimeout(_usageSearchTimer);
+  if (_usageSearch.length >= 2) {
+    _usageSearchTimer = setTimeout(() => _fetchSFAccountSearch(_usageSearch), 350);
+  }
+}
+
+function clearUsageSearch() {
+  const inp = document.getElementById('usage-search-input');
+  inp.value = '';
+  _usageSearch = '';
+  document.getElementById('usage-search-clear').style.display = 'none';
+  document.getElementById('usage-search-dropdown').style.display = 'none';
+  inp.focus();
+}
+
+function onUsageSearchKey(e) {
+  if (e.key === 'Escape') clearUsageSearch();
+}
+
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('usage-search-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    const dd = document.getElementById('usage-search-dropdown');
+    if (dd) dd.style.display = 'none';
+  }
+});
+
+async function _fetchSFAccountSearch(query) {
+  if (query !== _usageSearch) return; // stale
+  try {
+    const resp = await _apiFetch(`./api/account-search?q=${encodeURIComponent(query)}`);
+    const sfRows = await resp.json();
+    if (query !== _usageSearch) return; // stale after await
+    _renderUsageSearchDropdown(sfRows);
+  } catch (_) { /* SF fetch failed — local results already shown */ }
+}
+
+function _highlight(text, query) {
+  if (!query) return text;
+  const idx = text.toLowerCase().indexOf(query);
+  if (idx < 0) return text;
+  return text.slice(0, idx)
+    + `<mark style="background:#dbeafe;color:#1e40af;padding:0 1px">${text.slice(idx, idx + query.length)}</mark>`
+    + text.slice(idx + query.length);
+}
+
+function _usageSearchRow(r, badge) {
+  const signals = r.signals?.length ? r.signals : (r.total_30d > 0 ? [] : []);
+  const badges  = signals.map(s => `<span class="signal-badge sig-${s}">${SIGNAL_LABELS[s] || s}</span>`).join('');
+  const calls30 = r.total_30d != null ? Math.round(r.total_30d).toLocaleString() : '—';
+  const calls7  = r.total_7d  != null ? Math.round(r.total_7d).toLocaleString()  : null;
+  const openOpp = r.has_open_opp ? '<span style="color:var(--green);font-size:10px;font-weight:700">● opp</span>' : '';
+  const usageLine = calls7 != null
+    ? `${calls30} / 30d &nbsp;·&nbsp; ${calls7} / 7d`
+    : `${calls30} / 30d`;
+  return `<div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);cursor:default"
+      onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+    <div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+        <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text-hi)">${_highlight(r.account, _usageSearch)}</span>
+        ${badge}
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim)">${r.tier || ''} · ${r.owner || ''}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:3px">${badges} ${openOpp}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim)">${usageLine}</div>
+    </div>
+  </div>`;
+}
+
+function _renderUsageSearchDropdown(sfRows) {
+  const dd = document.getElementById('usage-search-dropdown');
+  if (!_usageSearch) { dd.style.display = 'none'; return; }
+  const us = data?.usage_signals;
+  if (!us) return;
+
+  // Local matches (target accounts with signal data)
+  const seen = new Set();
+  const localRows = [...(us.tier1 || []), ...(us.tier2a || [])].filter(r => {
+    if (seen.has(r.account)) return false;
+    seen.add(r.account);
+    return (r.account || '').toLowerCase().includes(_usageSearch);
+  });
+
+  // SF-only matches (accounts not already in local results)
+  const sfOnly = (sfRows || []).filter(r => !seen.has(r.account));
+
+  const totalMatches = localRows.length + sfOnly.length;
+
+  if (totalMatches === 0 && sfRows !== null) {
+    // sfRows===[] means SF returned, sfRows===[] initial means still loading
+    const isLoading = sfRows.length === 0 && _usageSearch.length >= 2;
+    dd.innerHTML = `<div style="padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--text-dim)">${isLoading && localRows.length === 0 ? '// Searching…' : '// No matches found'}</div>`;
+    dd.style.display = '';
+    return;
+  }
+
+  const targetBadge  = `<span style="font-family:var(--mono);font-size:9px;background:#e0f2fe;color:#0369a1;padding:1px 5px;font-weight:600">TARGET</span>`;
+  const sfBadge      = `<span style="font-family:var(--mono);font-size:9px;background:#f1f5f9;color:#64748b;padding:1px 5px;font-weight:600">SF</span>`;
+  const loadingBadge = `<span style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">searching…</span>`;
+
+  let html = '';
+
+  if (localRows.length) {
+    html += localRows.slice(0, 12).map(r => _usageSearchRow(r, targetBadge)).join('');
+    if (localRows.length > 12) html += `<div style="padding:6px 12px;font-family:var(--mono);font-size:10px;color:var(--text-dim);text-align:center">${localRows.length - 12} more target accounts — refine your search</div>`;
+  }
+
+  if (sfOnly.length) {
+    if (localRows.length) html += `<div style="padding:5px 12px;font-family:var(--mono);font-size:9px;color:var(--text-dim);background:#f8fafc;border-top:1px solid var(--border);letter-spacing:0.06em;text-transform:uppercase">Other Salesforce accounts</div>`;
+    html += sfOnly.slice(0, 8).map(r => _usageSearchRow(r, sfBadge)).join('');
+  } else if (localRows.length && sfRows !== null && sfRows.length === 0 && _usageSearch.length >= 2) {
+    // SF returned but no additional matches — show nothing extra
+  } else if (_usageSearch.length >= 2 && !sfRows.length) {
+    // Still waiting on SF
+    if (localRows.length) html += `<div style="padding:6px 12px;font-family:var(--mono);font-size:10px;color:var(--text-dim);border-top:1px solid var(--border)">${loadingBadge}</div>`;
+  }
+
+  dd.innerHTML = html || `<div style="padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--text-dim)">// No matches found</div>`;
+  dd.style.display = '';
 }
 
 function renderUsageTable() {
@@ -2923,10 +3217,11 @@ function renderUsageTable() {
       `<span class="signal-badge sig-${s}">${SIGNAL_LABELS[s]||s}</span>`
     ).join('');
     const ownerSub = r.owner ? `<div style="font-size:10px;color:#64748b;margin-top:2px;font-weight:400">${r.owner}</div>` : '';
+    const custBadge = r.is_customer ? `<span style="font-family:var(--mono);font-size:9px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:1px 5px;letter-spacing:0.04em;vertical-align:middle;margin-left:5px">CUST</span>` : '';
     return `<tr>
       <td class="td-truncate"><strong>${r.account_id
         ? `<a href="https://ydc.lightning.force.com/lightning/r/Account/${r.account_id}/view" target="_blank" style="color:var(--text-hi);text-decoration:none;border-bottom:1px solid var(--border-hi)" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-hi)'">${r.account}</a>`
-        : r.account}</strong>${ownerSub}</td>
+        : r.account}</strong>${custBadge}${ownerSub}</td>
       <td>${r.tier||''}</td>
       <td>${badges || '<span class="signal-badge sig-no_signal">No Signal</span>'}</td>
       <td>${r.total_7d != null ? Math.round(r.total_7d).toLocaleString() : '-'}</td>
@@ -2940,8 +3235,433 @@ function renderUsageTable() {
   document.getElementById('usage-body').innerHTML = tbody || '<tr><td colspan="8" class="empty-state">No accounts found.</td></tr>';
 }
 
+// ===================== TAB 7: VOLUMES =====================
+let _volSortKey = 'q2_total';
+let _volSortDir = -1;
+let _volChartView = 'monthly';
+
+function setVolView(view, btn) {
+  _volChartView = view;
+  document.querySelectorAll('#vol-view-monthly,#vol-view-quarterly,#vol-view-logos').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const vd = data?.volume_data;
+  if (!vd || vd.error) return;
+  if (view === 'monthly') {
+    document.getElementById('vol-chart-title').textContent = 'Monthly API Call Volume — Excl. ByteDance & DuckDuckGo';
+    _renderVolumeChartMonthly(vd);
+  } else if (view === 'quarterly') {
+    document.getElementById('vol-chart-title').textContent = 'Quarterly API Call Volume vs. Target — Excl. ByteDance & DuckDuckGo';
+    _renderVolumeChartQuarterly(vd);
+  } else {
+    document.getElementById('vol-chart-title').textContent = 'Quarterly Net New Logos vs. Target';
+    _renderVolumeChartLogos(vd);
+  }
+}
+
+function renderVolumes() {
+  const vd = data?.volume_data;
+  if (!vd || vd.error) {
+    const msg = vd?.error || 'Volume data not available — run forecast_refresh.py to generate.';
+    document.getElementById('vol-kpis').innerHTML = warnCard(msg);
+    document.getElementById('vol-progress-card').innerHTML = '';
+    return;
+  }
+  _renderVolumeKPIs(vd);
+  _renderVolumeProgress(vd);
+  _renderVolumeChart(vd);
+  _renderVolumeTable(vd);
+}
+
+function _fmtM(v) {
+  if (!v) return '0';
+  if (v >= 1e9)  return (v / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B';
+  if (v >= 1e6)  return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1e3)  return Math.round(v / 1e3) + 'k';
+  return String(Math.round(v));
+}
+
+function _renderVolumeKPIs(vd) {
+  const q2Target  = (vd.targets_m?.q2 || 99) * 1_000_000;
+  const q2Actual  = vd.q2_excl_top2 || 0;
+  const q2Pct     = q2Target ? Math.round(q2Actual / q2Target * 100) : 0;
+
+  const today         = new Date();
+  const junMtd        = vd.monthly_excl_top2?.['2026-06'] || 0;
+  const junDay        = (today.getMonth() === 5) ? today.getDate() : 30;
+  const junProjected  = junDay > 0 ? Math.round(junMtd / junDay * 30) : junMtd;
+  const q2Projected   = (vd.monthly_excl_top2?.['2026-04'] || 0)
+                      + (vd.monthly_excl_top2?.['2026-05'] || 0)
+                      + junProjected;
+  const q2PacePct = q2Target ? Math.round(q2Projected / q2Target * 100) : 0;
+
+  const activeCusts = (vd.customers_excl_top2 || []).filter(c =>
+    (c.monthly_calls?.['2026-05'] || 0) + (c.monthly_calls?.['2026-06'] || 0) > 0
+  ).length;
+
+  const netNewTarget = vd.logo_targets?.q2?.net_new || 30;
+
+  document.getElementById('vol-kpis').innerHTML = `
+    <div class="card">
+      <div class="card-title">Q2 Volume (MTD)</div>
+      <div class="metric-value" style="font-size:26px;color:${pctColor(q2Pct)}">${_fmtM(q2Actual)}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q2Pct}% of ${vd.targets_m?.q2||99}M target · excl. BD &amp; DDG</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Q2 Pace (Projected)</div>
+      <div class="metric-value" style="font-size:26px;color:${pctColor(q2PacePct)}">${_fmtM(q2Projected)}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q2PacePct}% of target · at current Jun pace</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Q2 Net New Logos</div>
+      <div class="metric-value" style="font-size:26px;color:var(--green)">31 <span style="font-size:14px">✓</span></div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">of ${netNewTarget} target · exceeded</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Active Customers (May/Jun)</div>
+      <div class="metric-value" style="font-size:26px">${activeCusts}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">with calls in May or Jun · excl. BD &amp; DDG</div>
+    </div>
+  `;
+}
+
+function _renderVolumeProgress(vd) {
+  const q2Target  = (vd.targets_m?.q2 || 99) * 1_000_000;
+  const q2Actual  = vd.q2_excl_top2 || 0;
+  const q2Pct     = q2Target ? Math.min(q2Actual / q2Target * 100, 100) : 0;
+
+  const today        = new Date();
+  const junMtd       = vd.monthly_excl_top2?.['2026-06'] || 0;
+  const junDay       = (today.getMonth() === 5) ? today.getDate() : 30;
+  const junProj      = junDay > 0 ? Math.round(junMtd / junDay * 30) : junMtd;
+  const q2Proj       = (vd.monthly_excl_top2?.['2026-04'] || 0)
+                     + (vd.monthly_excl_top2?.['2026-05'] || 0) + junProj;
+  const q2PacePct    = q2Target ? Math.min(q2Proj / q2Target * 100, 100) : 0;
+
+  function _bar(label, txt, pct, color, faded) {
+    return `
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">
+          <span>${label}</span><span style="color:var(--text)">${txt}</span>
+        </div>
+        <div style="background:var(--border);height:14px;overflow:hidden">
+          <div style="height:100%;width:${pct.toFixed(1)}%;background:${color};${faded?'opacity:0.55':''}"></div>
+        </div>
+      </div>`;
+  }
+
+  document.getElementById('vol-progress-card').innerHTML = `
+    <div class="card-title">Q2 Volume Progress — Excl. ByteDance &amp; DuckDuckGo</div>
+    ${_bar('MTD Actuals', `${_fmtM(q2Actual)} / ${vd.targets_m?.q2||99}M target`, q2Pct, pctColor(Math.round(q2Pct)), false)}
+    ${_bar('Projected (at Jun pace)', `${_fmtM(q2Proj)}`, q2PacePct, pctColor(Math.round(q2PacePct)), true)}
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:8px">
+      Q3 target: ${vd.targets_m?.q3||366}M &nbsp;·&nbsp; Q4 target: ${vd.targets_m?.q4||1009}M
+    </div>
+  `;
+}
+
+function _renderVolumeChart(vd) {
+  if (_volChartView === 'quarterly') _renderVolumeChartQuarterly(vd);
+  else _renderVolumeChartMonthly(vd);
+}
+
+function _renderVolumeChartMonthly(vd) {
+  destroyChart('vol-chart');
+  const months = vd.monthly_excl_top2 || {};
+  const Q2_SET = new Set(['2026-04','2026-05','2026-06']);
+  const ALL_KEYS = [
+    '2025-06','2025-07','2025-08','2025-09','2025-10','2025-11','2025-12',
+    '2026-01','2026-02','2026-03','2026-04','2026-05','2026-06',
+  ];
+  const LABELS = ['Jun-25','Jul-25','Aug-25','Sep-25','Oct-25','Nov-25','Dec-25',
+                  'Jan-26','Feb-26','Mar-26','Apr-26','May-26','Jun-26*'];
+
+  const barData   = ALL_KEYS.map(k => +((months[k] || 0) / 1_000_000).toFixed(3));
+  const barColors = ALL_KEYS.map(k => Q2_SET.has(k) ? '#00c8e8' : 'rgba(0,200,232,0.28)');
+  const q2MonthTarget = (vd.targets_m?.q2 || 99) / 3;
+  const targetLine = ALL_KEYS.map(k => Q2_SET.has(k) ? q2MonthTarget : null);
+
+  new Chart(document.getElementById('vol-chart'), {
+    type: 'bar',
+    data: {
+      labels: LABELS,
+      datasets: [
+        { label: 'API Calls (M)', data: barData, backgroundColor: barColors, borderWidth: 0 },
+        { label: 'Q2 Monthly Target (33M)', data: targetLine, type: 'line',
+          borderColor: '#f59e0b', borderDash: [5,4], borderWidth: 2,
+          pointRadius: 0, fill: false, tension: 0 },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) + 'M' : '') } },
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: { ticks: { callback: v => v + 'M' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+      },
+    },
+  });
+  document.getElementById('vol-chart-legend').innerHTML =
+    '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px">' +
+    '<span style="display:inline-block;width:10px;height:10px;background:#00c8e8"></span>Q2 actuals</span>' +
+    '<span style="display:inline-flex;align-items:center;gap:5px">' +
+    '<span style="display:inline-block;width:14px;border-top:2px dashed #f59e0b"></span>Q2 monthly target (99M ÷ 3 = 33M/mo)</span>';
+}
+
+function _renderVolumeChartQuarterly(vd) {
+  destroyChart('vol-chart');
+  const m = vd.monthly_excl_top2 || {};
+  const tm = vd.targets_m || {};
+
+  // Q1 actual (complete), Q2 MTD, Q3/Q4 = 0 not started
+  const q1Actual = vd.q1_excl_top2 || 0;
+  const q2Actual = vd.q2_excl_top2 || 0;
+
+  // Q2 projected: extrapolate Jun MTD
+  const today = new Date();
+  const junDay = (today.getMonth() === 5) ? today.getDate() : 30;
+  const junProj = junDay > 0 ? Math.round((m['2026-06'] || 0) / junDay * 30) : (m['2026-06'] || 0);
+  const q2Proj = (m['2026-04'] || 0) + (m['2026-05'] || 0) + junProj;
+
+  const LABELS   = ['Q1 (Jan–Mar)', 'Q2 (Apr–Jun)', 'Q3 (Jul–Sep)', 'Q4 (Oct–Dec)'];
+  const actuals  = [q1Actual / 1e6, q2Actual / 1e6, 0, 0];
+  const targets  = [tm.q1 || 32, tm.q2 || 99, tm.q3 || 366, tm.q4 || 1009];
+  const projected = [null, q2Proj / 1e6, null, null];
+
+  // Color bars by attainment
+  const barColors = [
+    q1Actual / 1e6 >= (tm.q1||32) ? '#00e5a0' : '#00c8e8',  // Q1 green if hit
+    '#00c8e8',   // Q2 cyan (in progress)
+    'rgba(0,200,232,0.15)',  // Q3 ghost
+    'rgba(0,200,232,0.15)',  // Q4 ghost
+  ];
+
+  new Chart(document.getElementById('vol-chart'), {
+    type: 'bar',
+    data: {
+      labels: LABELS,
+      datasets: [
+        {
+          label: 'Actuals (M)',
+          data: actuals,
+          backgroundColor: barColors,
+          borderWidth: 0,
+          order: 2,
+        },
+        {
+          label: 'Q2 Projected (M)',
+          data: projected,
+          backgroundColor: 'rgba(0,200,232,0.35)',
+          borderWidth: 0,
+          order: 3,
+        },
+        {
+          label: 'Target (M)',
+          data: targets,
+          type: 'line',
+          borderColor: '#f59e0b',
+          borderDash: [5,4],
+          borderWidth: 2,
+          pointStyle: 'circle',
+          pointRadius: 4,
+          pointBackgroundColor: '#f59e0b',
+          fill: false,
+          tension: 0,
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.parsed.y == null || ctx.parsed.y === 0) return null;
+              return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + 'M';
+            },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: { ticks: { callback: v => v + 'M' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+      },
+    },
+  });
+
+  const q1Hit = q1Actual / 1e6 >= (tm.q1 || 32);
+  const q2Pct = Math.round(q2Actual / (tm.q2 || 99) / 1e6 * 100);
+  const q2ProjPct = Math.round(q2Proj / (tm.q2 || 99) / 1e6 * 100);
+  document.getElementById('vol-chart-legend').innerHTML =
+    `<span style="color:${q1Hit?'var(--green)':'var(--text-dim)'}">Q1 ${q1Hit?'✓ hit':'missed'} (${(q1Actual/1e6).toFixed(1)}M / ${tm.q1}M)</span>` +
+    `&nbsp;·&nbsp;<span style="color:var(--accent)">Q2 MTD ${q2Pct}% (${(q2Actual/1e6).toFixed(1)}M / ${tm.q2}M), projected ${q2ProjPct}%</span>` +
+    `&nbsp;·&nbsp;<span style="color:var(--text-dim)">Q3 target ${tm.q3}M · Q4 target ${tm.q4}M</span>`;
+}
+
+function _renderVolumeChartLogos(vd) {
+  destroyChart('vol-chart');
+  const lt = vd.logo_targets || {};
+  const deals = data?.paygo?.all_pago_deals || [];
+
+  // Count net new logos by close quarter (2026)
+  function _qtr(closeDate) {
+    if (!closeDate) return null;
+    const m = parseInt((closeDate + '').slice(5, 7), 10);
+    if (m >= 1 && m <= 3) return 'q1';
+    if (m >= 4 && m <= 6) return 'q2';
+    if (m >= 7 && m <= 9) return 'q3';
+    return 'q4';
+  }
+  const counts = { q1: 0, q2: 0, q3: 0, q4: 0 };
+  deals.forEach(d => {
+    const q = _qtr(d.close_date);
+    if (q) counts[q]++;
+  });
+
+  const LABELS  = ['Q1 (Jan–Mar)', 'Q2 (Apr–Jun)', 'Q3 (Jul–Sep)', 'Q4 (Oct–Dec)'];
+  const actuals = [counts.q1, counts.q2, 0, 0];
+  const targets = [lt.q1?.net_new||5, lt.q2?.net_new||30, lt.q3?.net_new||53, lt.q4?.net_new||59];
+
+  const barColors = [
+    counts.q1 >= (lt.q1?.net_new||5)  ? '#00e5a0' : '#00c8e8',
+    counts.q2 >= (lt.q2?.net_new||30) ? '#00e5a0' : '#00c8e8',
+    'rgba(0,200,232,0.15)',
+    'rgba(0,200,232,0.15)',
+  ];
+
+  new Chart(document.getElementById('vol-chart'), {
+    type: 'bar',
+    data: {
+      labels: LABELS,
+      datasets: [
+        {
+          label: 'Net New Logos',
+          data: actuals,
+          backgroundColor: barColors,
+          borderWidth: 0,
+          order: 2,
+        },
+        {
+          label: 'Target',
+          data: targets,
+          type: 'line',
+          borderColor: '#f59e0b',
+          borderDash: [5, 4],
+          borderWidth: 2,
+          pointStyle: 'circle',
+          pointRadius: 4,
+          pointBackgroundColor: '#f59e0b',
+          fill: false,
+          tension: 0,
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.parsed.y != null ? ctx.dataset.label + ': ' + ctx.parsed.y : null,
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          ticks: { stepSize: 10, callback: v => v },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+        },
+      },
+    },
+  });
+
+  const q1Hit = counts.q1 >= (lt.q1?.net_new||5);
+  const q2Hit = counts.q2 >= (lt.q2?.net_new||30);
+  document.getElementById('vol-chart-legend').innerHTML =
+    `<span style="color:${q1Hit?'var(--green)':'var(--text-dim)'}">Q1 ${q1Hit?'✓':'✗'} ${counts.q1} / ${lt.q1?.net_new||5}</span>` +
+    `&nbsp;·&nbsp;<span style="color:${q2Hit?'var(--green)':'var(--accent)'}">Q2 ${q2Hit?'✓ exceeded':'in progress'} ${counts.q2} / ${lt.q2?.net_new||30}</span>` +
+    `&nbsp;·&nbsp;<span style="color:var(--text-dim)">Q3 target ${lt.q3?.net_new||53} &nbsp;·&nbsp; Q4 target ${lt.q4?.net_new||59}</span>`;
+}
+
+let _volSearchQuery = '';
+function onVolSearch(val) {
+  _volSearchQuery = val.trim().toLowerCase();
+  document.getElementById('vol-search-clear').style.display = _volSearchQuery ? '' : 'none';
+  if (data?.volume_data) _renderVolumeTable(data.volume_data);
+}
+
+function sortVolTable(key) {
+  if (_volSortKey === key) _volSortDir = -_volSortDir;
+  else { _volSortKey = key; _volSortDir = -1; }
+  _renderVolumeTable(data.volume_data);
+}
+
+function _renderVolumeTable(vd) {
+  let rows = [...(vd.customers_excl_top2 || [])];
+  if (_volSearchQuery) rows = rows.filter(c => (c.name||'').toLowerCase().includes(_volSearchQuery));
+  rows.sort((a, b) => {
+    if (_volSortKey === 'name') return _volSortDir * (a.name||'').localeCompare(b.name||'');
+    const _v = (c, k) => k === 'apr' ? (c.monthly_calls?.['2026-04']||0)
+                       : k === 'may' ? (c.monthly_calls?.['2026-05']||0)
+                       : k === 'jun' ? (c.monthly_calls?.['2026-06']||0)
+                       : (c[k] || 0);
+    return _volSortDir * (_v(a, _volSortKey) - _v(b, _volSortKey));
+  });
+
+  function _th(key, label) {
+    const active = _volSortKey === key;
+    return `<th onclick="sortVolTable('${key}')" style="cursor:pointer;user-select:none">${label}${active ? (_volSortDir>0?' ↑':' ↓') : ''}</th>`;
+  }
+
+  document.getElementById('vol-thead').innerHTML = `<tr>
+    ${_th('name','Customer')}
+    <th>Closed</th>
+    ${_th('apr','Apr')}
+    ${_th('may','May')}
+    ${_th('jun','Jun MTD')}
+    ${_th('q2_total','Q2 Total')}
+    <th>vs. Q1</th>
+  </tr>`;
+
+  document.getElementById('vol-tbody').innerHTML = rows.map(c => {
+    const apr = c.monthly_calls?.['2026-04'] || 0;
+    const may = c.monthly_calls?.['2026-05'] || 0;
+    const jun = c.monthly_calls?.['2026-06'] || 0;
+    const q2  = c.q2_total || 0;
+    const q1  = c.q1_total || 0;
+    let vsQ1 = '<span style="color:var(--text-dim)">—</span>';
+    if (q1 === 0 && q2 > 0) {
+      vsQ1 = '<span style="color:var(--green);font-weight:700">new</span>';
+    } else if (q1 > 0 && q2 > 0) {
+      const pct = Math.round((q2 - q1) / q1 * 100);
+      vsQ1 = `<span style="color:${pct>=0?'var(--green)':'var(--red)'};font-weight:700">${pct>=0?'↑':'↓'}${Math.abs(pct)}%</span>`;
+    }
+    return `<tr>
+      <td><strong>${c.name}</strong></td>
+      <td style="color:var(--text-dim);font-family:var(--mono);font-size:10px">${c.close_date||'—'}</td>
+      <td style="font-family:var(--mono)">${_fmtM(apr)}</td>
+      <td style="font-family:var(--mono)">${_fmtM(may)}</td>
+      <td style="font-family:var(--mono);color:var(--text-dim)">${_fmtM(jun)}</td>
+      <td style="font-family:var(--mono);font-weight:700">${_fmtM(q2)}</td>
+      <td>${vsQ1}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="empty-state">No customer data available.</td></tr>';
+
+  const asOfEl = document.getElementById('vol-as-of');
+  if (asOfEl && vd.as_of) asOfEl.textContent = `as of ${vd.as_of}`;
+}
+
 // ===================== INIT =====================
-const VALID_TABS = ['tab-snapshot','tab-pipeline','tab-paygo','tab-changes','tab-activity','tab-usage','tab-sources'];
+const VALID_TABS = ['tab-snapshot','tab-pipeline','tab-paygo','tab-changes','tab-activity','tab-usage','tab-sources','tab-volumes'];
 document.addEventListener('DOMContentLoaded', () => {
   // Measure real header height so the sticky tab nav sits flush beneath it
   const hdr = document.querySelector('.page-header');
@@ -3110,8 +3830,9 @@ const TAB_LABELS = {
   'tab-paygo':    'PayGo',
   'tab-changes':  'Deal Changes',
   'tab-activity': 'AE Activity',
-  'tab-usage':    'Usage Signals',
+  'tab-usage':    'Usage',
   'tab-sources':  'Opp Sources',
+  'tab-volumes':  'Volumes',
 };
 const LS_TAB_VIS = 'forecast_tab_visibility';
 
@@ -3186,8 +3907,9 @@ setTimeout(applyTabVisibility, 0);
         <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-paygo">    <span>PayGo</span></label>
         <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-changes">  <span>Deal Changes</span></label>
         <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-activity"> <span>AE Activity</span></label>
-        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-usage">    <span>Usage Signals</span></label>
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-usage">    <span>Usage</span></label>
         <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-sources">  <span>Opp Sources</span></label>
+        <label class="tvcb-row"><input type="checkbox" id="tvcb-tab-volumes">  <span>Volumes</span></label>
       </div>
     </div>
     <div id="tab-vis-footer">
@@ -3310,5 +4032,40 @@ setTimeout(applyTabVisibility, 0);
 }
 #tab-vis-save:hover { opacity: 0.88; }
 </style>
+
+<!-- Meetings drill-down modal -->
+<div id="mtg-modal" style="display:none;position:fixed;inset:0;z-index:1000;align-items:center;justify-content:center">
+  <div onclick="closeMtgModal()" style="position:absolute;inset:0;background:rgba(0,0,0,0.45)"></div>
+  <div style="position:relative;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:280px;max-width:420px;max-height:70vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div id="mtg-modal-title" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text)"></div>
+      <button onclick="closeMtgModal()" style="background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;line-height:1">✕</button>
+    </div>
+    <ul id="mtg-modal-list" style="margin:0;padding:0 0 0 16px;font-family:var(--mono);font-size:12px;color:var(--text);line-height:1.8"></ul>
+    <div id="mtg-modal-empty" style="display:none;font-family:var(--mono);font-size:12px;color:var(--text-muted)">No account names recorded for this period.</div>
+  </div>
+</div>
+<script>
+function openMtgModal(repName, weekLabel, accounts) {
+  const modal = document.getElementById('mtg-modal');
+  document.getElementById('mtg-modal-title').textContent = `${repName.split(' ')[0]} · ${weekLabel}`;
+  const list  = document.getElementById('mtg-modal-list');
+  const empty = document.getElementById('mtg-modal-empty');
+  list.innerHTML = '';
+  if (accounts && accounts.length) {
+    accounts.forEach(a => { const li = document.createElement('li'); li.textContent = a; list.appendChild(li); });
+    list.style.display = '';
+    empty.style.display = 'none';
+  } else {
+    list.style.display = 'none';
+    empty.style.display = '';
+  }
+  modal.style.display = 'flex';
+}
+function closeMtgModal() {
+  document.getElementById('mtg-modal').style.display = 'none';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMtgModal(); });
+</script>
 </body>
 </html>
