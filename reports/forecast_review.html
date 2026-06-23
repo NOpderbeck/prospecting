@@ -3300,6 +3300,13 @@ function _renderVolumeKPIs(vd) {
 
   const netNewTarget = vd.logo_targets?.q2?.net_new || 30;
 
+  // Count Q2 net new logos from PayGo deals — same logic as the Logos chart
+  const q2NetNew = (data?.paygo?.all_pago_deals || []).filter(d => {
+    const m = parseInt((d.close_date || '').slice(5, 7), 10);
+    return m >= 4 && m <= 6;
+  }).length;
+  const netNewExceeded = q2NetNew >= netNewTarget;
+
   document.getElementById('vol-kpis').innerHTML = `
     <div class="card">
       <div class="card-title">Q2 Volume (MTD)</div>
@@ -3313,8 +3320,8 @@ function _renderVolumeKPIs(vd) {
     </div>
     <div class="card">
       <div class="card-title">Q2 Net New Logos</div>
-      <div class="metric-value" style="font-size:26px;color:var(--green)">31 <span style="font-size:14px">✓</span></div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">of ${netNewTarget} target · exceeded</div>
+      <div class="metric-value" style="font-size:26px;color:var(--green)">${q2NetNew}${netNewExceeded ? ' <span style="font-size:14px">✓</span>' : ''}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">of ${netNewTarget} target · ${netNewExceeded ? 'exceeded' : 'in progress'}</div>
     </div>
     <div class="card">
       <div class="card-title">Active Customers (May/Jun)</div>
