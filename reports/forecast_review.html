@@ -698,7 +698,7 @@
   <div class="card grid-1" style="margin-bottom:10px" id="vol-progress-card"></div>
   <div class="card grid-1" style="margin-bottom:10px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div class="card-title" style="margin-bottom:0" id="vol-chart-title">Monthly API Call Volume — Excl. ByteDance &amp; DuckDuckGo</div>
+      <div class="card-title" style="margin-bottom:0" id="vol-chart-title">Monthly API Call Volume — Excl. Largest 2 Customers</div>
       <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
         <button class="qpb-period active" id="vol-view-monthly"   onclick="setVolView('monthly',this)">Monthly</button>
         <button class="qpb-period"        id="vol-view-quarterly" onclick="setVolView('quarterly',this)">Volume</button>
@@ -3247,10 +3247,10 @@ function setVolView(view, btn) {
   const vd = data?.volume_data;
   if (!vd || vd.error) return;
   if (view === 'monthly') {
-    document.getElementById('vol-chart-title').textContent = 'Monthly API Call Volume — Excl. ByteDance & DuckDuckGo';
+    document.getElementById('vol-chart-title').textContent = 'Monthly API Call Volume — Excl. Largest 2 Customers';
     _renderVolumeChartMonthly(vd);
   } else if (view === 'quarterly') {
-    document.getElementById('vol-chart-title').textContent = 'Quarterly API Call Volume vs. Target — Excl. ByteDance & DuckDuckGo';
+    document.getElementById('vol-chart-title').textContent = 'Quarterly API Call Volume vs. Target — Excl. Largest 2 Customers';
     _renderVolumeChartQuarterly(vd);
   } else {
     document.getElementById('vol-chart-title').textContent = 'Quarterly Net New Logos vs. Target';
@@ -3304,7 +3304,7 @@ function _renderVolumeKPIs(vd) {
     <div class="card">
       <div class="card-title">Q2 Volume (MTD)</div>
       <div class="metric-value" style="font-size:26px;color:${pctColor(q2Pct)}">${_fmtM(q2Actual)}</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q2Pct}% of ${vd.targets_m?.q2||99}M target · excl. BD &amp; DDG</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q2Pct}% of ${vd.targets_m?.q2||99}M target · excl. largest 2</div>
     </div>
     <div class="card">
       <div class="card-title">Q2 Pace (Projected)</div>
@@ -3319,7 +3319,7 @@ function _renderVolumeKPIs(vd) {
     <div class="card">
       <div class="card-title">Active Customers (May/Jun)</div>
       <div class="metric-value" style="font-size:26px">${activeCusts}</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">with calls in May or Jun · excl. BD &amp; DDG</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">with calls in May or Jun · excl. largest 2</div>
     </div>
   `;
 }
@@ -3350,7 +3350,7 @@ function _renderVolumeProgress(vd) {
   }
 
   document.getElementById('vol-progress-card').innerHTML = `
-    <div class="card-title">Q2 Volume Progress — Excl. ByteDance &amp; DuckDuckGo</div>
+    <div class="card-title">Q2 Volume Progress — Excl. Largest 2 Customers</div>
     ${_bar('MTD Actuals', `${_fmtM(q2Actual)} / ${vd.targets_m?.q2||99}M target`, q2Pct, pctColor(Math.round(q2Pct)), false)}
     ${_bar('Projected (at Jun pace)', `${_fmtM(q2Proj)}`, q2PacePct, pctColor(Math.round(q2PacePct)), true)}
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:8px">
