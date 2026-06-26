@@ -1098,6 +1098,7 @@ PAYGO_TARGET_TOTAL  = 40   # combined
 # Each entry is a Salesforce Opportunity ID.
 PAYGO_EXCEPTION_IDS = {
     "006Vq00000ZPkhpIAD",  # HPE Juniper Networks — Web+News Search API
+    "006Vq00000aFCvOIAW",  # Reflection.ai — API Credit | Search API
 }
 
 def build_paygo(sf, id_map: dict) -> dict:
