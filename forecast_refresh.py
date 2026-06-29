@@ -792,9 +792,14 @@ def build_gong_calls() -> dict:
             print(f"    Warning: Gong extensive call fetch failed: {e}", file=sys.stderr)
 
     # Step 3: parse, normalize, and count external meetings per rep
+    from datetime import date as _date
+    week_monday = _date.today() - timedelta(days=_date.today().weekday())
+
     results = []
-    meetings_by_rep: dict[str, int] = {name: 0 for name in ALL_REP_EMAILS.values()}
-    accounts_by_rep: dict[str, set] = {name: set() for name in ALL_REP_EMAILS.values()}
+    meetings_by_rep:      dict[str, int] = {name: 0 for name in ALL_REP_EMAILS.values()}
+    meetings_by_rep_week: dict[str, int] = {name: 0 for name in ALL_REP_EMAILS.values()}
+    accounts_by_rep:      dict[str, set] = {name: set() for name in ALL_REP_EMAILS.values()}
+    accounts_by_rep_week: dict[str, set] = {name: set() for name in ALL_REP_EMAILS.values()}
 
     for call in calls_raw:
         call_id    = call.get("id") or ""
@@ -802,6 +807,13 @@ def build_gong_calls() -> dict:
         scheduled  = call.get("scheduled") or call.get("started") or ""
         duration   = call.get("duration") or 0
         url        = call.get("url") or ""
+
+        call_date_str = scheduled[:10] if scheduled else ""
+        try:
+            call_date = _date.fromisoformat(call_date_str)
+            is_this_week = call_date >= week_monday
+        except ValueError:
+            is_this_week = False
 
         # Parse account name from title "You<>AccountName"
         account = ""
@@ -830,28 +842,39 @@ def build_gong_calls() -> dict:
             meetings_by_rep[rep_name] = meetings_by_rep.get(rep_name, 0) + 1
             if account:
                 accounts_by_rep[rep_name].add(account)
+            if is_this_week:
+                meetings_by_rep_week[rep_name] = meetings_by_rep_week.get(rep_name, 0) + 1
+                if account:
+                    accounts_by_rep_week[rep_name].add(account)
 
         results.append({
             "title":        title,
             "account":      account,
-            "date":         scheduled[:10] if scheduled else "",
+            "date":         call_date_str,
             "duration_min": round(duration / 60, 1) if duration else 0,
             "url":          url,
             "rep":          rep_name,
             "has_external": has_external,
         })
 
-    nick_total = sum(meetings_by_rep.get(n, 0) for n in NICK_TEAM_EMAILS.values())
-    ivy_total  = sum(meetings_by_rep.get(n, 0) for n in IVY_TEAM_EMAILS.values())
+    nick_total      = sum(meetings_by_rep.get(n, 0)      for n in NICK_TEAM_EMAILS.values())
+    ivy_total       = sum(meetings_by_rep.get(n, 0)      for n in IVY_TEAM_EMAILS.values())
+    nick_week_total = sum(meetings_by_rep_week.get(n, 0) for n in NICK_TEAM_EMAILS.values())
+    ivy_week_total  = sum(meetings_by_rep_week.get(n, 0) for n in IVY_TEAM_EMAILS.values())
     meetings_14d = {
-        "by_rep":          meetings_by_rep,
-        "accounts_by_rep": {k: sorted(v) for k, v in accounts_by_rep.items()},
-        "nick_team_total": nick_total,
-        "ivy_team_total":  ivy_total,
-        "period_start":    from_dt.strftime("%Y-%m-%d"),
-        "period_end":      now.strftime("%Y-%m-%d"),
+        "by_rep":               meetings_by_rep,
+        "by_rep_week":          meetings_by_rep_week,
+        "accounts_by_rep":      {k: sorted(v) for k, v in accounts_by_rep.items()},
+        "accounts_by_rep_week": {k: sorted(v) for k, v in accounts_by_rep_week.items()},
+        "nick_team_total":      nick_total,
+        "ivy_team_total":       ivy_total,
+        "nick_week_total":      nick_week_total,
+        "ivy_week_total":       ivy_week_total,
+        "period_start":         from_dt.strftime("%Y-%m-%d"),
+        "period_end":           now.strftime("%Y-%m-%d"),
+        "week_start":           week_monday.isoformat(),
     }
-    print(f"    Gong: {len(results)} calls parsed, {nick_total + ivy_total} external meetings (14d)")
+    print(f"    Gong: {len(results)} calls parsed, {nick_total + ivy_total} external meetings (14d), {nick_week_total + ivy_week_total} this week")
     return {"calls": results, "meetings_14d": meetings_14d}
 
 
@@ -872,12 +895,12 @@ def persist_meetings_log(meetings_14d: dict) -> list[dict]:
         "week":            week_key,
         "week_label":      week_label,
         "recorded_at":     datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "period_start":    meetings_14d["period_start"],
+        "period_start":    meetings_14d.get("week_start", meetings_14d["period_start"]),
         "period_end":      meetings_14d["period_end"],
-        "by_rep":          meetings_14d["by_rep"],
-        "accounts_by_rep": meetings_14d.get("accounts_by_rep", {}),
-        "nick_team_total": meetings_14d["nick_team_total"],
-        "ivy_team_total":  meetings_14d["ivy_team_total"],
+        "by_rep":          meetings_14d.get("by_rep_week", meetings_14d["by_rep"]),
+        "accounts_by_rep": meetings_14d.get("accounts_by_rep_week", meetings_14d.get("accounts_by_rep", {})),
+        "nick_team_total": meetings_14d.get("nick_week_total", meetings_14d["nick_team_total"]),
+        "ivy_team_total":  meetings_14d.get("ivy_week_total",  meetings_14d["ivy_team_total"]),
     }
 
     log: list[dict] = []
