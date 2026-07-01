@@ -3310,7 +3310,7 @@ function _renderVolumeKPIs(vd) {
     Object.values(c.monthly_calls || {}).some(v => v > 0)
   ).length;
 
-  const netNewTarget = vd.logo_targets?.q3?.net_new || 53;
+  const netNewTarget = vd.logo_targets?.q3?.net_new || 50;
   const q3NetNew = (data?.paygo?.all_pago_deals || []).filter(d => {
     const mo = parseInt((d.close_date || '').slice(5, 7), 10);
     return mo >= 7 && mo <= 9;
@@ -3569,7 +3569,7 @@ function _renderVolumeChartLogos(vd) {
 
   const LABELS  = ['Q1 (Jan–Mar)', 'Q2 (Apr–Jun)', 'Q3 (Jul–Sep)', 'Q4 (Oct–Dec)'];
   const actuals = [counts.q1, counts.q2, counts.q3, 0];
-  const targets = [lt.q1?.net_new||5, lt.q2?.net_new||40, lt.q3?.net_new||53, lt.q4?.net_new||59];
+  const targets = [lt.q1?.net_new||5, lt.q2?.net_new||40, lt.q3?.net_new||50, lt.q4?.net_new||59];
 
   const barColors = [
     counts.q1 >= (lt.q1?.net_new||5)  ? '#00e5a0' : '#00c8e8',  // Q1 done
@@ -3629,7 +3629,7 @@ function _renderVolumeChartLogos(vd) {
 
   const q1Hit = counts.q1 >= (lt.q1?.net_new||5);
   const q2Hit = counts.q2 >= (lt.q2?.net_new||40);
-  const q3Hit = counts.q3 >= (lt.q3?.net_new||53);
+  const q3Hit = counts.q3 >= (lt.q3?.net_new||50);
   document.getElementById('vol-chart-legend').innerHTML =
     `<span style="color:${q1Hit?'var(--green)':'var(--text-dim)'}">Q1 ${q1Hit?'✓':'✗'} ${counts.q1} / ${lt.q1?.net_new||5}</span>` +
     `&nbsp;·&nbsp;<span style="color:${q2Hit?'var(--green)':'var(--text-dim)'}">Q2 ${q2Hit?'✓ final':'final'} ${counts.q2} / ${lt.q2?.net_new||40}</span>` +
