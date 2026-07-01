@@ -1118,8 +1118,8 @@ def build_usage_signals(sf) -> dict:
 # ── Section 8: paygo ──────────────────────────────────────────────────────────
 
 PAYGO_REPORT_ID     = "00OVq00000D8YD7MAN"
-PAYGO_TARGET_TEAM   = 20   # per team
-PAYGO_TARGET_TOTAL  = 40   # combined
+PAYGO_TARGET_TEAM   = 25   # per team
+PAYGO_TARGET_TOTAL  = 50   # combined
 
 # Deals that qualify as PayGo but don't follow the standard naming convention.
 # Each entry is a Salesforce Opportunity ID.

@@ -516,7 +516,7 @@
 
   <!-- Team progress bars -->
   <div class="grid-1 card" style="margin-bottom:10px">
-    <div class="card-title" id="paygo-progress-title">Team Progress — Q2 PayGo Target</div>
+    <div class="card-title" id="paygo-progress-title">Team Progress — Q3 PayGo Target</div>
     <div id="paygo-team-bars"></div>
   </div>
 
@@ -1411,8 +1411,8 @@ function renderPayGo() {
   }
 
   const isFY = _paygoPeriod === 'fy';
-  const TARGET_TEAM  = (isFY ? pg.fy_target_per_team : pg.target_per_team) || 20;
-  const TARGET_TOTAL = (isFY ? pg.fy_target_total    : pg.target_total)    || 40;
+  const TARGET_TEAM  = (isFY ? pg.fy_target_per_team : pg.target_per_team) || 25;
+  const TARGET_TOTAL = (isFY ? pg.fy_target_total    : pg.target_total)    || 50;
   const nickData     = isFY ? pg.fy_nick_team  : pg.nick_team;
   const ivyData      = isFY ? pg.fy_ivy_team   : pg.ivy_team;
   const combinedData = isFY ? pg.fy_combined   : pg.combined;
@@ -1420,7 +1420,7 @@ function renderPayGo() {
   const dealsData    = isFY ? pg.fy_deals      : pg.deals;
 
   const titleEl = document.getElementById('paygo-progress-title');
-  if (titleEl) titleEl.textContent = isFY ? 'Team Progress — FY PayGo Target' : 'Team Progress — Q2 PayGo Target';
+  if (titleEl) titleEl.textContent = isFY ? 'Team Progress — FY PayGo Target' : 'Team Progress — Q3 PayGo Target';
 
   // ── Team progress bars ──────────────────────────────────────────────────────
   function teamBar(label, count, target) {
@@ -1487,7 +1487,7 @@ function sortPayGoDeals(key) {
 
 function renderPayGoRepTable() {
   const { key, dir } = window._paygoRepSort;
-  const TARGET_TEAM  = window._paygoTargetTeam || 20;
+  const TARGET_TEAM  = window._paygoTargetTeam || 25;
   const maxCount     = Math.max(...(window._paygoRepRows || []).map(r => r.count), 1);
 
   const sorted = [...(window._paygoRepRows || [])].sort((a, b) => {
