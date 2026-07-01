@@ -26,10 +26,14 @@ import requests
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-Q2_START = "2026-04-01"
-Q2_END   = "2026-06-30"
-Q2_START_DT = "2026-04-01T00:00:00Z"
-Q2_END_DT   = "2026-06-30T23:59:59Z"
+Q2_START = "2026-07-01"   # current quarter = Q3 2026
+Q2_END   = "2026-09-30"
+Q2_START_DT = "2026-07-01T00:00:00Z"
+Q2_END_DT   = "2026-09-30T23:59:59Z"
+
+# Historical Q2 2026 dates (Apr–Jun, now complete)
+Q2_PREV_START = "2026-04-01"
+Q2_PREV_END   = "2026-06-30"
 
 FY_START = "2026-01-01"   # FY2026 = calendar year 2026
 FY_END   = "2026-12-31"
@@ -1367,10 +1371,12 @@ _VOL_MONTH_KEYS = [
     "2025-01","2025-02","2025-03","2025-04","2025-05","2025-06",
     "2025-07","2025-08","2025-09","2025-10","2025-11","2025-12",
     "2026-01","2026-02","2026-03","2026-04","2026-05","2026-06",
+    "2026-07","2026-08","2026-09",
 ]
 _TOP2_PREFIXES = ("bytedance", "duckduckgo")
 _Q1_26 = ["2026-01","2026-02","2026-03"]
 _Q2_26 = ["2026-04","2026-05","2026-06"]
+_Q3_26 = ["2026-07","2026-08","2026-09"]
 
 # Quarterly targets (millions of API calls) — update each quarter
 _VOL_TARGETS_M = {"q1": 32, "q2": 99, "q3": 366, "q4": 1009}
@@ -1505,12 +1511,14 @@ def build_volume_data() -> dict:
                 monthly[mk] = _int(row[col_idx])
         q1_total = sum(monthly.get(m, 0) for m in _Q1_26)
         q2_total = sum(monthly.get(m, 0) for m in _Q2_26)
+        q3_total = sum(monthly.get(m, 0) for m in _Q3_26)
         customers.append({
             "name":          name,
             "close_date":    close_date,
             "monthly_calls": monthly,
             "q1_total":      q1_total,
             "q2_total":      q2_total,
+            "q3_total":      q3_total,
             "is_top2":       any(name.lower().startswith(p) for p in _TOP2_PREFIXES),
         })
 
@@ -1518,15 +1526,17 @@ def build_volume_data() -> dict:
 
     excl = [c for c in customers if not c["is_top2"]]
     monthly_excl = {mk: sum(c["monthly_calls"].get(mk, 0) for c in excl) for mk in _VOL_MONTH_KEYS}
-    q2_excl = sum(monthly_excl.get(m, 0) for m in _Q2_26)
     q1_excl = sum(monthly_excl.get(m, 0) for m in _Q1_26)
+    q2_excl = sum(monthly_excl.get(m, 0) for m in _Q2_26)
+    q3_excl = sum(monthly_excl.get(m, 0) for m in _Q3_26)
 
     return {
         "targets_m":           _VOL_TARGETS_M,
         "logo_targets":        _LOGO_TARGETS,
         "monthly_excl_top2":   monthly_excl,
-        "q2_excl_top2":        q2_excl,
         "q1_excl_top2":        q1_excl,
+        "q2_excl_top2":        q2_excl,  # historical Q2 final
+        "q3_excl_top2":        q3_excl,  # current quarter
         "customers_excl_top2": excl,
         "top2":                sorted(set(c["name"] for c in customers if c["is_top2"])),
         "as_of":               datetime.now().strftime("%Y-%m-%d"),
@@ -1652,7 +1662,7 @@ def main():
         output["volume_data"] = build_volume_data()
         vd = output["volume_data"]
         cust_count = len(vd.get("customers_excl_top2") or [])
-        print(f"  [10/10] Done: volume_data ({cust_count} customers, Q2 excl top2: {vd.get('q2_excl_top2',0):,})")
+        print(f"  [10/10] Done: volume_data ({cust_count} customers, Q3 excl top2: {vd.get('q3_excl_top2',0):,}, Q2 final: {vd.get('q2_excl_top2',0):,})")
     except Exception as e:
         print(f"  [10/10] ERROR: volume_data: {e}", file=sys.stderr)
         output["volume_data"] = {"error": str(e)}

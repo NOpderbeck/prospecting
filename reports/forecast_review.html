@@ -1041,7 +1041,7 @@ function renderQuotaProgressBar() {
   const fillWidth = Math.min(pct, 100);
 
   // Period label
-  const periodLabel = isFY ? '// FY2026 · Jan 1 – Dec 31, 2026' : '// Q2 FY2026 · Apr 1 – Jun 30, 2026';
+  const periodLabel = isFY ? '// FY2026 · Jan 1 – Dec 31, 2026' : '// Q3 FY2026 · Jul 1 – Sep 30, 2026';
   document.getElementById('qpb-period-label').textContent = periodLabel;
 
   document.getElementById('qpb-cw').textContent    = fmt$(cw);
@@ -1053,13 +1053,13 @@ function renderQuotaProgressBar() {
   document.getElementById('qpb-fill-label').textContent = fmtPct(pct) + ' attained';
   document.getElementById('qpb-quota-label').textContent = fmt$(quota) + ' quota';
 
-  // Quarter timeline (static — always Q2 Apr 1 – Jun 30)
+  // Quarter timeline (Q3 Jul 1 – Sep 30)
   renderQuarterTimeline();
 }
 
 function renderQuarterTimeline() {
-  const qStart = new Date('2026-04-01T00:00:00');
-  const qEnd   = new Date('2026-06-30T23:59:59');
+  const qStart = new Date('2026-07-01T00:00:00');
+  const qEnd   = new Date('2026-09-30T23:59:59');
   const today  = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -1076,11 +1076,11 @@ function renderQuarterTimeline() {
   document.getElementById('qtr-timeline-label').textContent =
     `Week ${Math.ceil(daysElapsed / 7)} of ${Math.ceil(daysTotal / 7)} · ${daysLeft}d remaining`;
 
-  // Month ticks: May 1, Jun 1
+  // Month ticks: Aug 1, Sep 1
   const months = [
-    { label: 'Apr', d: new Date('2026-04-01') },
-    { label: 'May', d: new Date('2026-05-01') },
-    { label: 'Jun', d: new Date('2026-06-01') },
+    { label: 'Jul', d: new Date('2026-07-01') },
+    { label: 'Aug', d: new Date('2026-08-01') },
+    { label: 'Sep', d: new Date('2026-09-01') },
   ];
   document.getElementById('qtr-month-ticks').innerHTML = months.map(m => {
     const p = ((m.d - qStart) / totalMs * 100).toFixed(1);
@@ -2695,8 +2695,8 @@ let _pagoSortDir   = -1;   // highest usage first
 let _pagoLoaded    = false;
 let _pagoPeriod    = 'cq'; // 'all' | 'fy' | 'cq'
 
-const CQ_START = '2026-04-01';
-const CQ_END   = '2026-06-30';
+const CQ_START = '2026-07-01';
+const CQ_END   = '2026-09-30';
 const FY_START = '2026-01-01';
 const FY_END   = '2026-12-31';
 
@@ -3236,7 +3236,7 @@ function renderUsageTable() {
 }
 
 // ===================== TAB 7: VOLUMES =====================
-let _volSortKey = 'q2_total';
+let _volSortKey = 'q3_total';
 let _volSortDir = -1;
 let _volChartView = 'monthly';
 
@@ -3281,72 +3281,93 @@ function _fmtM(v) {
 }
 
 function _renderVolumeKPIs(vd) {
-  const q2Target  = (vd.targets_m?.q2 || 99) * 1_000_000;
-  const q2Actual  = vd.q2_excl_top2 || 0;
-  const q2Pct     = q2Target ? Math.round(q2Actual / q2Target * 100) : 0;
+  const q3Target  = (vd.targets_m?.q3 || 366) * 1_000_000;
+  const q3Actual  = vd.q3_excl_top2 || 0;
+  const q3Pct     = q3Target ? Math.round(q3Actual / q3Target * 100) : 0;
 
-  const junMtd        = vd.monthly_excl_top2?.['2026-06'] || 0;
   const [,asOfMo, asOfDy] = (vd.as_of || '').split('-').map(Number);
-  const junDay        = (asOfMo === 6) ? asOfDy : 30;
-  const junProjected  = junDay > 0 ? Math.round(junMtd / junDay * 30) : junMtd;
-  const q2Projected   = (vd.monthly_excl_top2?.['2026-04'] || 0)
-                      + (vd.monthly_excl_top2?.['2026-05'] || 0)
-                      + junProjected;
-  const q2PacePct = q2Target ? Math.round(q2Projected / q2Target * 100) : 0;
+  const m = vd.monthly_excl_top2 || {};
+  const julMtd = m['2026-07'] || 0;
+  const augMtd = m['2026-08'] || 0;
+  const sepMtd = m['2026-09'] || 0;
+  // Project the current partial Q3 month to full length
+  const julDay = (asOfMo === 7) ? asOfDy : 31;
+  const augDay = (asOfMo === 8) ? asOfDy : 31;
+  const sepDay = (asOfMo === 9) ? asOfDy : 30;
+  const julProj = (asOfMo <= 7 && julDay > 0) ? Math.round(julMtd / Math.max(julDay,1) * 31) : julMtd;
+  const augProj = (asOfMo <= 8 && augDay > 0) ? Math.round(augMtd / Math.max(augDay,1) * 31) : augMtd;
+  const sepProj = (asOfMo <= 9 && sepDay > 0) ? Math.round(sepMtd / Math.max(sepDay,1) * 30) : sepMtd;
+  const q3Projected = (asOfMo === 7) ? julProj + augMtd + sepMtd
+                    : (asOfMo === 8) ? julMtd  + augProj + sepMtd
+                    : julMtd + augMtd + sepProj;
+  const q3PacePct = q3Target ? Math.round(q3Projected / q3Target * 100) : 0;
 
   const custs = vd.customers_excl_top2 || [];
   const activeCusts = custs.filter(c =>
-    (c.monthly_calls?.['2026-05'] || 0) + (c.monthly_calls?.['2026-06'] || 0) > 0
+    (c.monthly_calls?.['2026-07'] || 0) + (c.monthly_calls?.['2026-08'] || 0) > 0
   ).length;
   const totalCusts = custs.filter(c =>
     Object.values(c.monthly_calls || {}).some(v => v > 0)
   ).length;
 
-  const netNewTarget = vd.logo_targets?.q2?.net_new || 30;
-
-  // Count Q2 net new logos from PayGo deals — same logic as the Logos chart
-  const q2NetNew = (data?.paygo?.all_pago_deals || []).filter(d => {
-    const m = parseInt((d.close_date || '').slice(5, 7), 10);
-    return m >= 4 && m <= 6;
+  const netNewTarget = vd.logo_targets?.q3?.net_new || 53;
+  const q3NetNew = (data?.paygo?.all_pago_deals || []).filter(d => {
+    const mo = parseInt((d.close_date || '').slice(5, 7), 10);
+    return mo >= 7 && mo <= 9;
   }).length;
-  const netNewExceeded = q2NetNew >= netNewTarget;
+  const netNewExceeded = q3NetNew >= netNewTarget;
+
+  // Q2 final reference
+  const q2Final  = vd.q2_excl_top2 || 0;
+  const q2Target = (vd.targets_m?.q2 || 99) * 1_000_000;
+  const q2FinalPct = q2Target ? Math.round(q2Final / q2Target * 100) : 0;
 
   document.getElementById('vol-kpis').innerHTML = `
     <div class="card">
-      <div class="card-title">Q2 Volume (MTD)</div>
-      <div class="metric-value" style="font-size:26px;color:${pctColor(q2Pct)}">${_fmtM(q2Actual)}</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q2Pct}% of ${vd.targets_m?.q2||99}M target · excl. largest 2</div>
+      <div class="card-title">Q3 Volume (MTD)</div>
+      <div class="metric-value" style="font-size:26px;color:${pctColor(q3Pct)}">${_fmtM(q3Actual)}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q3Pct}% of ${vd.targets_m?.q3||366}M target · excl. largest 2</div>
     </div>
     <div class="card">
-      <div class="card-title">Q2 Pace (Projected)</div>
-      <div class="metric-value" style="font-size:26px;color:${pctColor(q2PacePct)}">${_fmtM(q2Projected)}</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q2PacePct}% of target · at current Jun pace</div>
+      <div class="card-title">Q3 Pace (Projected)</div>
+      <div class="metric-value" style="font-size:26px;color:${pctColor(q3PacePct)}">${_fmtM(q3Projected)}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q3PacePct}% of target · at current Jul pace</div>
     </div>
     <div class="card">
-      <div class="card-title">Q2 Net New Logos</div>
-      <div class="metric-value" style="font-size:26px;color:var(--green)">${q2NetNew}${netNewExceeded ? ' <span style="font-size:14px">✓</span>' : ''}</div>
+      <div class="card-title">Q3 Net New Logos</div>
+      <div class="metric-value" style="font-size:26px;color:${netNewExceeded ? 'var(--green)' : 'var(--text)'}">${q3NetNew}${netNewExceeded ? ' <span style="font-size:14px">✓</span>' : ''}</div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">of ${netNewTarget} target · ${netNewExceeded ? 'exceeded' : 'in progress'}</div>
     </div>
     <div class="card">
-      <div class="card-title">Active Customers (May/Jun)</div>
+      <div class="card-title">Active Customers (Jul/Aug)</div>
       <div class="metric-value" style="font-size:26px">${activeCusts} <span style="font-size:14px;color:var(--text-dim);font-weight:400">of ${totalCusts}</span></div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">with calls in May or Jun · excl. largest 2</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">with calls in Jul or Aug · excl. largest 2</div>
+    </div>
+    <div class="card" style="border-left:2px solid var(--border-hi)">
+      <div class="card-title" style="color:var(--text-dim)">Q2 Final (Apr–Jun)</div>
+      <div class="metric-value" style="font-size:26px;color:${pctColor(q2FinalPct)}">${_fmtM(q2Final)}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">${q2FinalPct}% of ${vd.targets_m?.q2||99}M target · excl. largest 2</div>
     </div>
   `;
 }
 
 function _renderVolumeProgress(vd) {
-  const q2Target  = (vd.targets_m?.q2 || 99) * 1_000_000;
-  const q2Actual  = vd.q2_excl_top2 || 0;
-  const q2Pct     = q2Target ? Math.min(q2Actual / q2Target * 100, 100) : 0;
+  const q3Target  = (vd.targets_m?.q3 || 366) * 1_000_000;
+  const q3Actual  = vd.q3_excl_top2 || 0;
+  const q3Pct     = q3Target ? Math.min(q3Actual / q3Target * 100, 100) : 0;
 
-  const junMtd       = vd.monthly_excl_top2?.['2026-06'] || 0;
   const [,_asOfMo, _asOfDy] = (vd.as_of || '').split('-').map(Number);
-  const junDay       = (_asOfMo === 6) ? _asOfDy : 30;
-  const junProj      = junDay > 0 ? Math.round(junMtd / junDay * 30) : junMtd;
-  const q2Proj       = (vd.monthly_excl_top2?.['2026-04'] || 0)
-                     + (vd.monthly_excl_top2?.['2026-05'] || 0) + junProj;
-  const q2PacePct    = q2Target ? Math.min(q2Proj / q2Target * 100, 100) : 0;
+  const _m = vd.monthly_excl_top2 || {};
+  const _julMtd = _m['2026-07'] || 0, _augMtd = _m['2026-08'] || 0, _sepMtd = _m['2026-09'] || 0;
+  const _julDay = (_asOfMo === 7) ? _asOfDy : 31;
+  const _julProj = (_asOfMo <= 7 && _julDay > 0) ? Math.round(_julMtd / Math.max(_julDay,1) * 31) : _julMtd;
+  const _augProj = (_asOfMo === 8 && _asOfDy > 0) ? Math.round(_augMtd / _asOfDy * 31) : _augMtd;
+  const _sepProj = (_asOfMo === 9 && _asOfDy > 0) ? Math.round(_sepMtd / _asOfDy * 30) : _sepMtd;
+  const q3Proj = (_asOfMo === 7) ? _julProj + _augMtd + _sepMtd
+               : (_asOfMo === 8) ? _julMtd  + _augProj + _sepMtd
+               : _julMtd + _augMtd + _sepProj;
+  const q3PacePct = q3Target ? Math.min(q3Proj / q3Target * 100, 100) : 0;
+  const curMoName = (_asOfMo === 7) ? 'Jul' : (_asOfMo === 8) ? 'Aug' : 'Sep';
 
   function _bar(label, txt, pct, color, faded) {
     return `
@@ -3361,11 +3382,11 @@ function _renderVolumeProgress(vd) {
   }
 
   document.getElementById('vol-progress-card').innerHTML = `
-    <div class="card-title">Q2 Volume Progress — Excl. Largest 2 Customers</div>
-    ${_bar('MTD Actuals', `${_fmtM(q2Actual)} / ${vd.targets_m?.q2||99}M target`, q2Pct, pctColor(Math.round(q2Pct)), false)}
-    ${_bar('Projected (at Jun pace)', `${_fmtM(q2Proj)}`, q2PacePct, pctColor(Math.round(q2PacePct)), true)}
+    <div class="card-title">Q3 Volume Progress — Excl. Largest 2 Customers</div>
+    ${_bar('MTD Actuals', `${_fmtM(q3Actual)} / ${vd.targets_m?.q3||366}M target`, q3Pct, pctColor(Math.round(q3Pct)), false)}
+    ${_bar(`Projected (at ${curMoName} pace)`, `${_fmtM(q3Proj)}`, q3PacePct, pctColor(Math.round(q3PacePct)), true)}
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:8px">
-      Q3 target: ${vd.targets_m?.q3||366}M &nbsp;·&nbsp; Q4 target: ${vd.targets_m?.q4||1009}M
+      Q2 final: ${_fmtM(vd.q2_excl_top2||0)} &nbsp;·&nbsp; Q4 target: ${vd.targets_m?.q4||1009}M
     </div>
   `;
 }
@@ -3378,18 +3399,20 @@ function _renderVolumeChart(vd) {
 function _renderVolumeChartMonthly(vd) {
   destroyChart('vol-chart');
   const months = vd.monthly_excl_top2 || {};
-  const Q2_SET = new Set(['2026-04','2026-05','2026-06']);
+  const Q3_SET = new Set(['2026-07','2026-08','2026-09']);
   const ALL_KEYS = [
-    '2025-06','2025-07','2025-08','2025-09','2025-10','2025-11','2025-12',
+    '2025-09','2025-10','2025-11','2025-12',
     '2026-01','2026-02','2026-03','2026-04','2026-05','2026-06',
+    '2026-07','2026-08','2026-09',
   ];
-  const LABELS = ['Jun-25','Jul-25','Aug-25','Sep-25','Oct-25','Nov-25','Dec-25',
-                  'Jan-26','Feb-26','Mar-26','Apr-26','May-26','Jun-26*'];
+  const LABELS = ['Sep-25','Oct-25','Nov-25','Dec-25',
+                  'Jan-26','Feb-26','Mar-26','Apr-26','May-26','Jun-26',
+                  'Jul-26*','Aug-26*','Sep-26*'];
 
   const barData   = ALL_KEYS.map(k => +((months[k] || 0) / 1_000_000).toFixed(3));
-  const barColors = ALL_KEYS.map(k => Q2_SET.has(k) ? '#00c8e8' : 'rgba(0,200,232,0.28)');
-  const q2MonthTarget = (vd.targets_m?.q2 || 99) / 3;
-  const targetLine = ALL_KEYS.map(k => Q2_SET.has(k) ? q2MonthTarget : null);
+  const barColors = ALL_KEYS.map(k => Q3_SET.has(k) ? '#00c8e8' : 'rgba(0,200,232,0.28)');
+  const q3MonthTarget = (vd.targets_m?.q3 || 366) / 3;
+  const targetLine = ALL_KEYS.map(k => Q3_SET.has(k) ? q3MonthTarget : null);
 
   new Chart(document.getElementById('vol-chart'), {
     type: 'bar',
@@ -3397,7 +3420,7 @@ function _renderVolumeChartMonthly(vd) {
       labels: LABELS,
       datasets: [
         { label: 'API Calls (M)', data: barData, backgroundColor: barColors, borderWidth: 0 },
-        { label: 'Q2 Monthly Target (33M)', data: targetLine, type: 'line',
+        { label: 'Q3 Monthly Target (122M)', data: targetLine, type: 'line',
           borderColor: '#f59e0b', borderDash: [5,4], borderWidth: 2,
           pointRadius: 0, fill: false, tension: 0 },
       ],
@@ -3417,9 +3440,9 @@ function _renderVolumeChartMonthly(vd) {
   });
   document.getElementById('vol-chart-legend').innerHTML =
     '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px">' +
-    '<span style="display:inline-block;width:10px;height:10px;background:#00c8e8"></span>Q2 actuals</span>' +
+    '<span style="display:inline-block;width:10px;height:10px;background:#00c8e8"></span>Q3 actuals</span>' +
     '<span style="display:inline-flex;align-items:center;gap:5px">' +
-    '<span style="display:inline-block;width:14px;border-top:2px dashed #f59e0b"></span>Q2 monthly target (99M ÷ 3 = 33M/mo)</span>';
+    `<span style="display:inline-block;width:14px;border-top:2px dashed #f59e0b"></span>Q3 monthly target (${vd.targets_m?.q3||366}M ÷ 3 = ${Math.round((vd.targets_m?.q3||366)/3)}M/mo)</span>`;
 }
 
 function _renderVolumeChartQuarterly(vd) {
@@ -3427,27 +3450,34 @@ function _renderVolumeChartQuarterly(vd) {
   const m = vd.monthly_excl_top2 || {};
   const tm = vd.targets_m || {};
 
-  // Q1 actual (complete), Q2 MTD, Q3/Q4 = 0 not started
+  // Q1/Q2 complete, Q3 in progress, Q4 not started
   const q1Actual = vd.q1_excl_top2 || 0;
-  const q2Actual = vd.q2_excl_top2 || 0;
+  const q2Final  = vd.q2_excl_top2 || 0;
+  const q3Actual = vd.q3_excl_top2 || 0;
 
-  // Q2 projected: extrapolate Jun MTD
+  // Q3 projected: extrapolate current month MTD
   const today = new Date();
-  const junDay = (today.getMonth() === 5) ? today.getDate() : 30;
-  const junProj = junDay > 0 ? Math.round((m['2026-06'] || 0) / junDay * 30) : (m['2026-06'] || 0);
-  const q2Proj = (m['2026-04'] || 0) + (m['2026-05'] || 0) + junProj;
+  const asOfMo = today.getMonth() + 1; // 1-indexed
+  const asOfDy = today.getDate();
+  const julMtd = m['2026-07'] || 0, augMtd = m['2026-08'] || 0, sepMtd = m['2026-09'] || 0;
+  const julProj = (asOfMo <= 7 && asOfDy > 0) ? Math.round(julMtd / Math.max(asOfMo===7?asOfDy:31,1) * 31) : julMtd;
+  const augProj = (asOfMo === 8 && asOfDy > 0) ? Math.round(augMtd / asOfDy * 31) : augMtd;
+  const sepProj = (asOfMo === 9 && asOfDy > 0) ? Math.round(sepMtd / asOfDy * 30) : sepMtd;
+  const q3Proj = (asOfMo === 7) ? julProj + augMtd + sepMtd
+               : (asOfMo === 8) ? julMtd  + augProj + sepMtd
+               : julMtd + augMtd + sepProj;
 
   const LABELS   = ['Q1 (Jan–Mar)', 'Q2 (Apr–Jun)', 'Q3 (Jul–Sep)', 'Q4 (Oct–Dec)'];
-  const actuals  = [q1Actual / 1e6, q2Actual / 1e6, 0, 0];
+  const actuals  = [q1Actual / 1e6, q2Final / 1e6, q3Actual / 1e6, 0];
   const targets  = [tm.q1 || 32, tm.q2 || 99, tm.q3 || 366, tm.q4 || 1009];
-  const projected = [null, q2Proj / 1e6, null, null];
+  const projected = [null, null, q3Proj / 1e6, null];
 
   // Color bars by attainment
   const barColors = [
     q1Actual / 1e6 >= (tm.q1||32) ? '#00e5a0' : '#00c8e8',  // Q1 green if hit
-    '#00c8e8',   // Q2 cyan (in progress)
-    'rgba(0,200,232,0.15)',  // Q3 ghost
-    'rgba(0,200,232,0.15)',  // Q4 ghost
+    q2Final  / 1e6 >= (tm.q2||99) ? '#00e5a0' : '#00c8e8',  // Q2 green if hit
+    '#00c8e8',                        // Q3 cyan (in progress)
+    'rgba(0,200,232,0.15)',            // Q4 ghost
   ];
 
   new Chart(document.getElementById('vol-chart'), {
@@ -3463,7 +3493,7 @@ function _renderVolumeChartQuarterly(vd) {
           order: 2,
         },
         {
-          label: 'Q2 Projected (M)',
+          label: 'Q3 Projected (M)',
           data: projected,
           backgroundColor: 'rgba(0,200,232,0.35)',
           borderWidth: 0,
@@ -3507,12 +3537,14 @@ function _renderVolumeChartQuarterly(vd) {
   });
 
   const q1Hit = q1Actual / 1e6 >= (tm.q1 || 32);
-  const q2Pct = Math.round(q2Actual / (tm.q2 || 99) / 1e6 * 100);
-  const q2ProjPct = Math.round(q2Proj / (tm.q2 || 99) / 1e6 * 100);
+  const q2FinalPct = Math.round(q2Final / (tm.q2 || 99) / 1e6 * 100);
+  const q3Pct = Math.round(q3Actual / (tm.q3 || 366) / 1e6 * 100);
+  const q3ProjPct = Math.round(q3Proj / (tm.q3 || 366) / 1e6 * 100);
   document.getElementById('vol-chart-legend').innerHTML =
     `<span style="color:${q1Hit?'var(--green)':'var(--text-dim)'}">Q1 ${q1Hit?'✓ hit':'missed'} (${(q1Actual/1e6).toFixed(1)}M / ${tm.q1}M)</span>` +
-    `&nbsp;·&nbsp;<span style="color:var(--accent)">Q2 MTD ${q2Pct}% (${(q2Actual/1e6).toFixed(1)}M / ${tm.q2}M), projected ${q2ProjPct}%</span>` +
-    `&nbsp;·&nbsp;<span style="color:var(--text-dim)">Q3 target ${tm.q3}M · Q4 target ${tm.q4}M</span>`;
+    `&nbsp;·&nbsp;<span style="color:var(--text-dim)">Q2 final ${q2FinalPct}% (${(q2Final/1e6).toFixed(1)}M / ${tm.q2}M)</span>` +
+    `&nbsp;·&nbsp;<span style="color:var(--accent)">Q3 MTD ${q3Pct}% (${(q3Actual/1e6).toFixed(1)}M / ${tm.q3}M), projected ${q3ProjPct}%</span>` +
+    `&nbsp;·&nbsp;<span style="color:var(--text-dim)">Q4 target ${tm.q4}M</span>`;
 }
 
 function _renderVolumeChartLogos(vd) {
@@ -3536,14 +3568,14 @@ function _renderVolumeChartLogos(vd) {
   });
 
   const LABELS  = ['Q1 (Jan–Mar)', 'Q2 (Apr–Jun)', 'Q3 (Jul–Sep)', 'Q4 (Oct–Dec)'];
-  const actuals = [counts.q1, counts.q2, 0, 0];
-  const targets = [lt.q1?.net_new||5, lt.q2?.net_new||30, lt.q3?.net_new||53, lt.q4?.net_new||59];
+  const actuals = [counts.q1, counts.q2, counts.q3, 0];
+  const targets = [lt.q1?.net_new||5, lt.q2?.net_new||40, lt.q3?.net_new||53, lt.q4?.net_new||59];
 
   const barColors = [
-    counts.q1 >= (lt.q1?.net_new||5)  ? '#00e5a0' : '#00c8e8',
-    counts.q2 >= (lt.q2?.net_new||30) ? '#00e5a0' : '#00c8e8',
-    'rgba(0,200,232,0.15)',
-    'rgba(0,200,232,0.15)',
+    counts.q1 >= (lt.q1?.net_new||5)  ? '#00e5a0' : '#00c8e8',  // Q1 done
+    counts.q2 >= (lt.q2?.net_new||40) ? '#00e5a0' : '#00c8e8',  // Q2 done
+    '#00c8e8',                                                    // Q3 in progress
+    'rgba(0,200,232,0.15)',                                       // Q4 ghost
   ];
 
   new Chart(document.getElementById('vol-chart'), {
@@ -3596,11 +3628,13 @@ function _renderVolumeChartLogos(vd) {
   });
 
   const q1Hit = counts.q1 >= (lt.q1?.net_new||5);
-  const q2Hit = counts.q2 >= (lt.q2?.net_new||30);
+  const q2Hit = counts.q2 >= (lt.q2?.net_new||40);
+  const q3Hit = counts.q3 >= (lt.q3?.net_new||53);
   document.getElementById('vol-chart-legend').innerHTML =
     `<span style="color:${q1Hit?'var(--green)':'var(--text-dim)'}">Q1 ${q1Hit?'✓':'✗'} ${counts.q1} / ${lt.q1?.net_new||5}</span>` +
-    `&nbsp;·&nbsp;<span style="color:${q2Hit?'var(--green)':'var(--accent)'}">Q2 ${q2Hit?'✓ exceeded':'in progress'} ${counts.q2} / ${lt.q2?.net_new||30}</span>` +
-    `&nbsp;·&nbsp;<span style="color:var(--text-dim)">Q3 target ${lt.q3?.net_new||53} &nbsp;·&nbsp; Q4 target ${lt.q4?.net_new||59}</span>`;
+    `&nbsp;·&nbsp;<span style="color:${q2Hit?'var(--green)':'var(--text-dim)'}">Q2 ${q2Hit?'✓ final':'final'} ${counts.q2} / ${lt.q2?.net_new||40}</span>` +
+    `&nbsp;·&nbsp;<span style="color:${q3Hit?'var(--green)':'var(--accent)'}">Q3 ${q3Hit?'✓ exceeded':'in progress'} ${counts.q3} / ${lt.q3?.net_new||53}</span>` +
+    `&nbsp;·&nbsp;<span style="color:var(--text-dim)">Q4 target ${lt.q4?.net_new||59}</span>`;
 }
 
 let _volSearchQuery = '';
@@ -3621,9 +3655,9 @@ function _renderVolumeTable(vd) {
   if (_volSearchQuery) rows = rows.filter(c => (c.name||'').toLowerCase().includes(_volSearchQuery));
   rows.sort((a, b) => {
     if (_volSortKey === 'name') return _volSortDir * (a.name||'').localeCompare(b.name||'');
-    const _v = (c, k) => k === 'apr' ? (c.monthly_calls?.['2026-04']||0)
-                       : k === 'may' ? (c.monthly_calls?.['2026-05']||0)
-                       : k === 'jun' ? (c.monthly_calls?.['2026-06']||0)
+    const _v = (c, k) => k === 'jul' ? (c.monthly_calls?.['2026-07']||0)
+                       : k === 'aug' ? (c.monthly_calls?.['2026-08']||0)
+                       : k === 'sep' ? (c.monthly_calls?.['2026-09']||0)
                        : (c[k] || 0);
     return _volSortDir * (_v(a, _volSortKey) - _v(b, _volSortKey));
   });
@@ -3636,34 +3670,34 @@ function _renderVolumeTable(vd) {
   document.getElementById('vol-thead').innerHTML = `<tr>
     ${_th('name','Customer')}
     <th>Closed</th>
-    ${_th('apr','Apr')}
-    ${_th('may','May')}
-    ${_th('jun','Jun MTD')}
-    ${_th('q2_total','Q2 Total')}
-    <th>vs. Q1</th>
+    ${_th('jul','Jul')}
+    ${_th('aug','Aug')}
+    ${_th('sep','Sep MTD')}
+    ${_th('q3_total','Q3 Total')}
+    <th>vs. Q2</th>
   </tr>`;
 
   document.getElementById('vol-tbody').innerHTML = rows.map(c => {
-    const apr = c.monthly_calls?.['2026-04'] || 0;
-    const may = c.monthly_calls?.['2026-05'] || 0;
-    const jun = c.monthly_calls?.['2026-06'] || 0;
+    const jul = c.monthly_calls?.['2026-07'] || 0;
+    const aug = c.monthly_calls?.['2026-08'] || 0;
+    const sep = c.monthly_calls?.['2026-09'] || 0;
+    const q3  = c.q3_total || 0;
     const q2  = c.q2_total || 0;
-    const q1  = c.q1_total || 0;
-    let vsQ1 = '<span style="color:var(--text-dim)">—</span>';
-    if (q1 === 0 && q2 > 0) {
-      vsQ1 = '<span style="color:var(--green);font-weight:700">new</span>';
-    } else if (q1 > 0 && q2 > 0) {
-      const pct = Math.round((q2 - q1) / q1 * 100);
-      vsQ1 = `<span style="color:${pct>=0?'var(--green)':'var(--red)'};font-weight:700">${pct>=0?'↑':'↓'}${Math.abs(pct)}%</span>`;
+    let vsQ2 = '<span style="color:var(--text-dim)">—</span>';
+    if (q2 === 0 && q3 > 0) {
+      vsQ2 = '<span style="color:var(--green);font-weight:700">new</span>';
+    } else if (q2 > 0 && q3 > 0) {
+      const pct = Math.round((q3 - q2) / q2 * 100);
+      vsQ2 = `<span style="color:${pct>=0?'var(--green)':'var(--red)'};font-weight:700">${pct>=0?'↑':'↓'}${Math.abs(pct)}%</span>`;
     }
     return `<tr>
       <td><strong>${c.name}</strong></td>
       <td style="color:var(--text-dim);font-family:var(--mono);font-size:10px">${c.close_date||'—'}</td>
-      <td style="font-family:var(--mono)">${_fmtM(apr)}</td>
-      <td style="font-family:var(--mono)">${_fmtM(may)}</td>
-      <td style="font-family:var(--mono);color:var(--text-dim)">${_fmtM(jun)}</td>
-      <td style="font-family:var(--mono);font-weight:700">${_fmtM(q2)}</td>
-      <td>${vsQ1}</td>
+      <td style="font-family:var(--mono)">${_fmtM(jul)}</td>
+      <td style="font-family:var(--mono)">${_fmtM(aug)}</td>
+      <td style="font-family:var(--mono);color:var(--text-dim)">${_fmtM(sep)}</td>
+      <td style="font-family:var(--mono);font-weight:700">${_fmtM(q3)}</td>
+      <td>${vsQ2}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="7" class="empty-state">No customer data available.</td></tr>';
 
