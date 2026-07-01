@@ -1083,7 +1083,8 @@ function renderQuarterTimeline() {
     { label: 'Sep', d: new Date('2026-09-01') },
   ];
   document.getElementById('qtr-month-ticks').innerHTML = months.map(m => {
-    const p = ((m.d - qStart) / totalMs * 100).toFixed(1);
+    const p = +((m.d - qStart) / totalMs * 100).toFixed(1);
+    if (p < 5) return '';  // skip labels too close to the left edge (overlaps TODAY)
     const isActive = today >= m.d;
     return `<span style="position:absolute;left:${p}%;transform:translateX(-50%);font-family:var(--mono);font-size:9px;color:${isActive ? 'var(--text-dim)' : 'var(--border-hi)'};letter-spacing:0.04em">${m.label}</span>`;
   }).join('');
