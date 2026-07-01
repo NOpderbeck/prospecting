@@ -1158,6 +1158,7 @@ function renderRepTable() {
   const f = data?.forecast;
   if (!f) return;
   const byRepObj = f.by_rep || {};
+  const isFY = currentQuotaPeriod === 'fy';
 
   // Filter by team
   const filtered = ALL_REPS.filter(n => {
@@ -1167,12 +1168,21 @@ function renderRepTable() {
     return true;
   });
 
-  // Enrich with derived fields
+  // Enrich with derived fields — honor CQ vs FY toggle
   let rows = filtered.map(n => {
-    const r   = byRepObj[n];
-    const cwc = (r.closed_won||0) + (r.commit||0);
-    const pct = r.quota > 0 ? Math.round(cwc / r.quota * 100) : 0;
-    return { name: n, team: NICK_TEAM.includes(n) ? 'Nick' : 'Ivy', pct, ...r };
+    const r     = byRepObj[n];
+    const quota = isFY ? (r.fy_quota || 0)      : (r.quota || 0);
+    const cw    = isFY ? (r.fy_closed_won || 0) : (r.closed_won || 0);
+    // FY attainment = closed won only; CQ attainment includes commit
+    const cwc   = isFY ? cw : cw + (r.commit || 0);
+    const pct   = quota > 0 ? Math.round(cwc / quota * 100) : 0;
+    return {
+      name: n, team: NICK_TEAM.includes(n) ? 'Nick' : 'Ivy', pct,
+      quota, closed_won: cw,
+      commit:    r.commit    || 0,  // always show CQ open pipeline for context
+      best_case: r.best_case || 0,
+      pipeline:  r.pipeline  || 0,
+    };
   });
 
   // Sort
@@ -1204,8 +1214,7 @@ function renderRepTable() {
   document.getElementById('rep-table-body').innerHTML = rows.map(r => {
     const teamBreak = currentQuotaTeam === 'all' && lastTeam && r.team !== lastTeam;
     lastTeam = r.team;
-    const cwc = (r.closed_won||0) + (r.commit||0);
-    const pct = r.quota > 0 ? Math.round(cwc / r.quota * 100) : 0;
+    const pct = r.pct;
     const col = pctColor(pct);
     const bar = Math.min(pct, 100);
     return `<tr class="${teamBreak ? 'team-divider' : ''}">
