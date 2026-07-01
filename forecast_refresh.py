@@ -100,8 +100,20 @@ def _build_weekly_windows(q_start_str: str) -> list[tuple[str, str, str]]:
         ws += timedelta(days=7)
     return windows
 
-WEEKLY_WINDOWS = _build_weekly_windows(Q2_START)
+# Rolling window: extend back 4 weeks into the prior quarter for continuity
+_cq_start_date   = date.fromisoformat(Q2_START)
+_rolling_start   = _cq_start_date - timedelta(weeks=4)
+ROLLING_START    = _rolling_start.strftime("%Y-%m-%d")
+ROLLING_START_DT = f"{ROLLING_START}T00:00:00Z"
+
+WEEKLY_WINDOWS = _build_weekly_windows(ROLLING_START)
 WEEK_LABELS    = [w[0] for w in WEEKLY_WINDOWS]
+
+# Index of the first week that falls within the current quarter
+CQ_WEEK_START_INDEX = next(
+    (i for i, (_, ws, _we) in enumerate(WEEKLY_WINDOWS) if ws >= Q2_START),
+    0
+)
 
 TARGET_WEEKLY_ACTIVITY = 206
 
@@ -409,28 +421,32 @@ def build_pipeline_health(sf, id_map: dict) -> dict:
     except Exception as e:
         print(f"    Warning: opps created report failed: {e}", file=sys.stderr)
 
-    # Pipeline created by week (report) — aggs[0]=amount, aggs[1]=count
+    # Pipeline created by week (SOQL — rolling window: 4 prior Q2 weeks + CQ)
     pipeline_by_week:       dict[str, dict] = {w: {} for w in WEEK_LABELS}
     pipeline_by_week_count: dict[str, dict] = {w: {} for w in WEEK_LABELS}
     try:
-        rpt3 = pull_report(sf, "00OVq00000E5qabMAB")
-        fact_map3  = rpt3.get("factMap") or {}
-        grp_down   = rpt3.get("groupingsDown",   {}).get("groupings", [])
-        grp_across = rpt3.get("groupingsAcross", {}).get("groupings", [])
-
-        for row_grp in grp_down:
-            rep_name = row_grp.get("label") or ""
-            for ci, col_grp in enumerate(grp_across):
-                key  = f"{row_grp.get('key')}!{col_grp.get('key')}"
-                cell = (fact_map3.get(key) or {}).get("aggregates") or []
-                amt   = next((float(a["value"]) for a in cell if isinstance(a.get("value"), float)), 0)
-                count = next((int(a["value"])   for a in cell if isinstance(a.get("value"), int)),   0)
-                if ci < len(WEEK_LABELS):
-                    pipeline_by_week[WEEK_LABELS[ci]][rep_name]       = amt
-                    pipeline_by_week_count[WEEK_LABELS[ci]][rep_name] = count
-        print(f"    Pipeline by week report: parsed")
+        id_to_name_ph = {v: k for k, v in id_map.items()}
+        opp_rows = soql(sf, f"""
+            SELECT OwnerId, CreatedDate, Amount
+            FROM Opportunity
+            WHERE CreatedDate >= {ROLLING_START_DT}
+            AND OwnerId IN ('{all_ids_str}')
+            ORDER BY CreatedDate ASC
+        """)
+        for r in opp_rows:
+            name = id_to_name_ph.get(r.get("OwnerId"), "")
+            if not name:
+                continue
+            created = (r.get("CreatedDate") or "")[:10]
+            amt = float(r.get("Amount") or 0)
+            for label, w_start, w_end in WEEKLY_WINDOWS:
+                if w_start <= created <= w_end:
+                    pipeline_by_week[label][name]       = pipeline_by_week[label].get(name, 0) + amt
+                    pipeline_by_week_count[label][name] = pipeline_by_week_count[label].get(name, 0) + 1
+                    break
+        print(f"    Pipeline by week SOQL: {len(opp_rows)} opps across {len(WEEKLY_WINDOWS)} weeks")
     except Exception as e:
-        print(f"    Warning: pipeline by week report failed: {e}", file=sys.stderr)
+        print(f"    Warning: pipeline by week SOQL failed: {e}", file=sys.stderr)
 
     # Stage distribution from SOQL
     stage_dist: dict[str, dict] = {}
@@ -530,6 +546,7 @@ def build_pipeline_health(sf, id_map: dict) -> dict:
         "by_rep":                 pipeline_by_rep_out,
         "pipeline_by_week":       pipeline_by_week,
         "pipeline_by_week_count": pipeline_by_week_count,
+        "cq_week_start_index":    CQ_WEEK_START_INDEX,
         "stage_distribution":     stage_dist,
         "stage_velocity":         stage_velocity,
         "stage_velocity_fy":      stage_velocity_fy,
@@ -544,7 +561,7 @@ def build_activity(sf, id_map: dict) -> dict:
     all_ids_str = ids_str(id_map, ALL_REPS)
 
     # Pull all SF tasks for the full weekly window (dynamic — covers Q2 start through end of current week)
-    window_start = WEEKLY_WINDOWS[0][1]   # first Sunday of Q2
+    window_start = WEEKLY_WINDOWS[0][1]   # first Sunday of rolling window (4 weeks before CQ)
     window_end   = WEEKLY_WINDOWS[-1][2]  # Saturday of current week
 
     tasks = soql(sf, f"""

@@ -1865,24 +1865,62 @@ function setPipelineWeekView(view, btn) {
 }
 
 function renderPipelineWeekChart() {
-  const isAmount = window._pipelineWeekView === 'amount';
-  const dataObj  = isAmount ? (window._pipelineWeekData || {}) : (window._pipelineWeekCountData || {});
-  const amtObj   = window._pipelineWeekData || {};
+  const isAmount  = window._pipelineWeekView === 'amount';
+  const dataObj   = isAmount ? (window._pipelineWeekData || {}) : (window._pipelineWeekCountData || {});
+  const amtObj    = window._pipelineWeekData || {};
+  const cqStartIdx = data?.pipeline_health?.cq_week_start_index ?? 0;
 
   const weekLabels = Object.keys(dataObj);
   const reps = [...new Set(weekLabels.flatMap(w => Object.keys(dataObj[w] || {})))].filter(r => ALL_REPS.includes(r));
+
+  // Divider plugin: dashed line + "Q2 | Q3" labels between prior and current quarter weeks
+  const qDividerPlugin = {
+    id: 'qDivider',
+    beforeDraw: (chart) => {
+      if (cqStartIdx <= 0 || cqStartIdx >= weekLabels.length) return;
+      const ctx    = chart.ctx;
+      const xScale = chart.scales.x;
+      const left   = xScale.getPixelForValue(cqStartIdx - 1);
+      const right  = xScale.getPixelForValue(cqStartIdx);
+      const x      = (left + right) / 2;
+      const top    = chart.chartArea.top;
+      const bot    = chart.chartArea.bottom;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bot);
+      ctx.strokeStyle = 'rgba(100,116,139,0.45)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#64748b';
+      ctx.textAlign = 'right';
+      ctx.fillText('← Q2', x - 5, top + 11);
+      ctx.textAlign = 'left';
+      ctx.fillText('Q3 →', x + 5, top + 11);
+      ctx.restore();
+    }
+  };
 
   destroyChart('chart-pipeline-weekly');
   new Chart(document.getElementById('chart-pipeline-weekly'), {
     type: 'bar',
     data: {
       labels: weekLabels,
-      datasets: reps.map(rep => ({
-        label: rep,
-        data: weekLabels.map(w => dataObj[w]?.[rep] || 0),
-        backgroundColor: REP_COLOR_MAP[rep] || '#00c8e8',
-        stack: 'stack',
-      }))
+      datasets: reps.map(rep => {
+        const base = REP_COLOR_MAP[rep] || '#00c8e8';
+        // Prior-quarter weeks get 30% opacity version of the rep color
+        const bgColors = weekLabels.map((_, i) =>
+          i < cqStartIdx ? base.slice(0, 7) + '4d' : base
+        );
+        return {
+          label: rep,
+          data: weekLabels.map(w => dataObj[w]?.[rep] || 0),
+          backgroundColor: bgColors,
+          stack: 'stack',
+        };
+      })
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -1917,7 +1955,8 @@ function renderPipelineWeekChart() {
         x: { stacked: true, ticks: {} },
         y: { stacked: true, ticks: { callback: v => isAmount ? '$' + Math.round(v / 1000) + 'k' : v } }
       }
-    }
+    },
+    plugins: [qDividerPlugin],
   });
 }
 
