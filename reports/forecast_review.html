@@ -2261,30 +2261,67 @@ function setActivityView(view) {
 }
 
 function renderStackedActivityChart() {
-  const byRepObj = window._actByRep    || {};
-  const repNames = window._actRepNames || [];
+  const byRepObj   = window._actByRep    || {};
+  const repNames   = window._actRepNames || [];
   const { idxs, weeks } = getActWeekSlice();
+  const cqStartIdx = data?.pipeline_health?.cq_week_start_index ?? 0;
+  // Position within the slice where Q3 begins
+  const sliceDivIdx = idxs.findIndex(gi => gi >= cqStartIdx);
+
+  // Divider plugin: dashed line + quarter labels (same as pipeline chart)
+  const actDividerPlugin = {
+    id: 'actDivider',
+    beforeDraw: (chart) => {
+      if (sliceDivIdx <= 0 || sliceDivIdx >= weeks.length) return;
+      const ctx    = chart.ctx;
+      const xScale = chart.scales.x;
+      const left   = xScale.getPixelForValue(sliceDivIdx - 1);
+      const right  = xScale.getPixelForValue(sliceDivIdx);
+      const x      = (left + right) / 2;
+      const top    = chart.chartArea.top;
+      const bot    = chart.chartArea.bottom;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bot);
+      ctx.strokeStyle = 'rgba(100,116,139,0.45)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#64748b';
+      ctx.textAlign = 'right';
+      ctx.fillText('← Q2', x - 5, top + 11);
+      ctx.textAlign = 'left';
+      ctx.fillText('Q3 →', x + 5, top + 11);
+      ctx.restore();
+    }
+  };
 
   destroyChart('chart-activity-stacked');
 
   let datasets;
   let stacked = true;
 
+  const mkColors = (name, fallback) => {
+    const base = REP_COLOR_MAP[name] || fallback;
+    return idxs.map(gi => gi < cqStartIdx ? base.slice(0, 7) + '4d' : base);
+  };
+
   if (_actView === 'ae') {
     const sel  = document.getElementById('act-ae-select');
     const name = sel?.value || repNames[0];
-    const color = REP_COLOR_MAP[name] || '#6366f1';
     datasets = [{
       label: name,
       data: idxs.map(i => (byRepObj[name] || [])[i] || 0),
-      backgroundColor: color,
+      backgroundColor: mkColors(name, '#6366f1'),
       stack: 'stack',
     }];
   } else {
     datasets = repNames.map(name => ({
       label: name,
       data: idxs.map(i => (byRepObj[name] || [])[i] || 0),
-      backgroundColor: REP_COLOR_MAP[name] || '#6366f1',
+      backgroundColor: mkColors(name, '#6366f1'),
       stack: 'stack',
     }));
   }
@@ -2306,7 +2343,7 @@ function renderStackedActivityChart() {
         }
       }
     },
-    plugins: []
+    plugins: [actDividerPlugin],
   });
 }
 

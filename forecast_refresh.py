@@ -109,10 +109,11 @@ ROLLING_START_DT = f"{ROLLING_START}T00:00:00Z"
 WEEKLY_WINDOWS = _build_weekly_windows(ROLLING_START)
 WEEK_LABELS    = [w[0] for w in WEEKLY_WINDOWS]
 
-# Index of the first week that falls within the current quarter
+# Index of the first week whose END date falls within the current quarter
+# (uses end date so a week straddling a quarter boundary is counted as CQ)
 CQ_WEEK_START_INDEX = next(
-    (i for i, (_, ws, _we) in enumerate(WEEKLY_WINDOWS) if ws >= Q2_START),
-    0
+    (i for i, (_, _ws, we) in enumerate(WEEKLY_WINDOWS) if we >= Q2_START),
+    len(WEEKLY_WINDOWS)
 )
 
 TARGET_WEEKLY_ACTIVITY = 206
