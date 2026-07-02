@@ -476,7 +476,7 @@
   <!-- CQ Deal List -->
   <div class="grid-1 card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div class="card-title" style="margin-bottom:0">CQ Deal List <span id="cq-deal-count" style="font-size:11px;font-weight:400;color:var(--text-dim);margin-left:6px"></span></div>
+      <div class="card-title" style="margin-bottom:0"><span id="cq-deal-list-title">CQ Deal List</span> <span id="cq-deal-count" style="font-size:11px;font-weight:400;color:var(--text-dim);margin-left:6px"></span></div>
       <div style="display:flex;gap:6px;align-items:center" id="cq-filter-btns">
         <button class="qpb-toggle" onclick="setCQFilter('all',this)">All</button>
         <button class="qpb-toggle active" onclick="setCQFilter('open',this)">Open</button>
@@ -1012,6 +1012,7 @@ function setQuotaPeriod(period, btn) {
   btn.classList.add('active');
   renderQuotaProgressBar();
   renderRepTable();
+  renderCQDealList();
 }
 
 function setQuotaTeam(team, btn) {
@@ -1299,7 +1300,12 @@ function setCQPageSize(val) {
 }
 
 function renderCQDealList() {
-  const deals = (data?.forecast?.cq_deals || []);
+  const isFY  = currentQuotaPeriod === 'fy';
+  const deals = isFY ? (data?.forecast?.fy_deals || []) : (data?.forecast?.cq_deals || []);
+
+  // Update section title to reflect active period
+  const titleEl = document.getElementById('cq-deal-list-title');
+  if (titleEl) titleEl.textContent = isFY ? 'FY Deal List' : 'CQ Deal List';
 
   // Team filter — mirrors the top team toggle
   const teamNames = currentQuotaTeam === 'nick' ? NICK_TEAM

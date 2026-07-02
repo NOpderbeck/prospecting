@@ -272,10 +272,10 @@ def build_forecast(sf, id_map: dict) -> dict:
         ORDER BY Amount DESC NULLS LAST
     """)
     id_to_name = {v: k for k, v in id_map.items()}
-    cq_deals = []
-    for r in cq_opp_rows:
+
+    def _deal_row(r):
         acct = (r.get("Account") or {})
-        cq_deals.append({
+        return {
             "opp_id":    r.get("Id") or "",
             "opp_name":  r.get("Name") or "",
             "account":   acct.get("Name") or "",
@@ -286,8 +286,23 @@ def build_forecast(sf, id_map: dict) -> dict:
             "owner":     id_to_name.get(r.get("OwnerId") or "", ""),
             "is_won":    bool(r.get("IsWon")),
             "is_closed": bool(r.get("IsClosed")),
-        })
+        }
+
+    cq_deals = [_deal_row(r) for r in cq_opp_rows]
     print(f"    CQ deal list: {len(cq_deals)} opps")
+
+    # FY deal list (Jan 1 – Dec 31) for the FY toggle view
+    fy_opp_rows = soql(sf, f"""
+        SELECT Id, Name, Account.Name, StageName, ForecastCategoryName,
+               Amount, CloseDate, OwnerId, IsClosed, IsWon
+        FROM Opportunity
+        WHERE CloseDate >= {FY_START}
+        AND CloseDate <= {FY_END}
+        AND OwnerId IN ('{all_ids_str}')
+        ORDER BY Amount DESC NULLS LAST
+    """)
+    fy_deals = [_deal_row(r) for r in fy_opp_rows]
+    print(f"    FY deal list: {len(fy_deals)} opps")
 
     return {
         "team_quota":  TEAM_TOTAL_QUOTA,
@@ -301,6 +316,7 @@ def build_forecast(sf, id_map: dict) -> dict:
             "all":  TEAM_ANNUAL_QUOTA_TOTAL,
         },
         "cq_deals": cq_deals,
+        "fy_deals": fy_deals,
     }
 
 
