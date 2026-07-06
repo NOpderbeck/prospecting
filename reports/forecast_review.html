@@ -1010,6 +1010,7 @@ function setQuotaPeriod(period, btn) {
   currentQuotaPeriod = period;
   document.querySelectorAll('.qpb-period').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  renderForecastKPIs();
   renderQuotaProgressBar();
   renderRepTable();
   renderCQDealList();
@@ -1021,6 +1022,7 @@ function setQuotaTeam(team, btn) {
   btn.closest('div').querySelectorAll('.qpb-toggle').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   _cqPage = 0;
+  renderForecastKPIs();
   renderQuotaProgressBar();
   renderRepTable();
   renderCQDealList();
@@ -1093,30 +1095,35 @@ function renderQuarterTimeline() {
 }
 
 // ===================== TAB 1: SNAPSHOT =====================
-function renderSnapshot() {
+function renderForecastKPIs() {
   const f = data?.forecast;
   if (!f || f.error) {
     document.getElementById('snap-metrics').innerHTML = warnCard(f?.error || 'No forecast data');
     return;
   }
 
-  const combined = f.combined || {};
+  const teamData = currentQuotaTeam === 'nick' ? (f.nick_team || {})
+                 : currentQuotaTeam === 'ivy'  ? (f.ivy_team  || {})
+                 : (f.combined || {});
+
+  // Build commit+cw
+  const t = Object.assign({}, teamData);
+  if (!t.commit_plus_cw) t.commit_plus_cw = (t.commit || 0) + (t.closed_won || 0);
+
   const metrics = [
-    { label: 'Closed Won', key: 'closed_won', quota: combined.quota },
-    { label: 'Commit + CW', key: 'commit_plus_cw', quota: combined.quota },
-    { label: 'Best Case', key: 'best_case', quota: combined.quota },
-    { label: 'Pipeline', key: 'pipeline', quota: combined.quota },
+    { label: 'Closed Won',  key: 'closed_won'    },
+    { label: 'Commit + CW', key: 'commit_plus_cw' },
+    { label: 'Best Case',   key: 'best_case'      },
+    { label: 'Pipeline',    key: 'pipeline'       },
   ];
 
-  // Build commit+cw if not explicit
-  if (!combined.commit_plus_cw) combined.commit_plus_cw = (combined.commit||0) + (combined.closed_won||0);
+  const quota = t.quota || 1;
 
   document.getElementById('snap-metrics').innerHTML = metrics.map(m => {
-    const val = combined[m.key] || 0;
-    const quota = m.quota || 1;
+    const val = t[m.key] || 0;
     const pct = Math.round(val / quota * 100);
     const col = pctColor(pct);
-    const delta = combined.wow_deltas?.[m.key];
+    const delta = t.wow_deltas?.[m.key];
     let deltaBadge = '';
     if (delta != null) {
       const up = delta >= 0;
@@ -1129,7 +1136,15 @@ function renderSnapshot() {
       ${deltaBadge}
     </div>`;
   }).join('');
+}
 
+function renderSnapshot() {
+  const f = data?.forecast;
+  if (!f || f.error) {
+    document.getElementById('snap-metrics').innerHTML = warnCard(f?.error || 'No forecast data');
+    return;
+  }
+  renderForecastKPIs();
   renderRepTable();
   renderCQDealList();
 }
