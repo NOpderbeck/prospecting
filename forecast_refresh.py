@@ -58,9 +58,9 @@ QUOTAS = {
     "Ivy Gress":                   0,
 }
 
-TEAM_QUOTA_NICK  = 694167
-TEAM_QUOTA_IVY   = 682500
-TEAM_TOTAL_QUOTA = 1376667
+TEAM_QUOTA_NICK  = 1219167
+TEAM_QUOTA_IVY   = 1015000
+TEAM_TOTAL_QUOTA = 2234167
 
 # FY annual quotas (quarterly × 4)
 ANNUAL_QUOTAS = {k: v * 4 for k, v in {

@@ -1002,7 +1002,7 @@ function renderHeader() {
 }
 
 // ===================== QUOTA PROGRESS BAR =====================
-const CQ_TEAM_QUOTAS = { nick: 694167, ivy: 682500, all: 1376667 };
+const CQ_TEAM_QUOTAS = { nick: 1219167, ivy: 1015000, all: 2234167 };
 let currentQuotaPeriod = 'cq';
 let currentQuotaTeam   = 'all';
 
@@ -1028,7 +1028,7 @@ function setQuotaTeam(team, btn) {
 
 function renderQuotaProgressBar() {
   const byRep    = data?.forecast?.by_rep || {};
-  const fyTQ     = data?.forecast?.fy_team_quotas || { nick: 694167*4, ivy: 682500*4, all: 1376667*4 };
+  const fyTQ     = data?.forecast?.fy_team_quotas || { nick: 1219167*4, ivy: 1015000*4, all: 2234167*4 };
   const isFY     = currentQuotaPeriod === 'fy';
   const cwField  = isFY ? 'fy_closed_won' : 'closed_won';
   const teamNames = currentQuotaTeam === 'nick' ? NICK_TEAM
