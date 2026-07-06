@@ -989,8 +989,10 @@ USAGE_SIGNALS_BLOCKLIST = {
     "不详",
 }
 
-def build_usage_signals(sf) -> dict:
+def build_usage_signals(sf, id_map: dict) -> dict:
     print("  [7/8] Pulling usage signals...")
+
+    all_rep_ids_str = ids_str(id_map, ALL_REPS)
 
     users = soql(sf, """
         SELECT Account__c, Account__r.Name, Account__r.Account_Tier__c,
@@ -1054,12 +1056,13 @@ def build_usage_signals(sf) -> dict:
             for i in range(0, len(acct_ids), 500):
                 chunk = acct_ids[i:i+500]
                 chunk_str = "', '".join(chunk)
-                # Open opps
+                # Open opps owned by our reps (excludes renewals/opps owned by other teams)
                 rows = soql(sf, f"""
                     SELECT AccountId, COUNT(Id) cnt
                     FROM Opportunity
                     WHERE IsClosed = false
                     AND AccountId IN ('{chunk_str}')
+                    AND OwnerId IN ('{all_rep_ids_str}')
                     GROUP BY AccountId
                 """)
                 for r in rows:
@@ -1668,7 +1671,7 @@ def main():
 
     # 7. Usage signals
     try:
-        output["usage_signals"] = build_usage_signals(sf)
+        output["usage_signals"] = build_usage_signals(sf, id_map)
         print("  [7/9] Done: usage_signals")
     except Exception as e:
         print(f"  [7/9] ERROR: usage_signals: {e}", file=sys.stderr)
