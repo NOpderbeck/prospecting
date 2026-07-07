@@ -3759,19 +3759,33 @@ function sortVolTable(key) {
 }
 
 function _renderVolumeTable(vd) {
+  // Dynamic rolling 3-month window: current month + 2 prior
+  const _today = vd.as_of ? new Date(vd.as_of) : new Date();
+  const _months = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(_today.getFullYear(), _today.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = d.toLocaleString('en-US', {month:'short'});
+    _months.push({key, label, isCurrent: i === 0});
+  }
+  // m0=2 months ago, m1=1 month ago, m2=current
+  const [m0, m1, m2] = _months;
+
+  // For Last 30d % calc
+  const _dayOfMonth = _today.getDate();
+  const _daysInM1 = new Date(_today.getFullYear(), _today.getMonth(), 0).getDate();
+  const _prevMonthDaysInWindow = 30 - _dayOfMonth;
+
   let rows = [...(vd.customers_excl_top2 || [])];
   if (_volSearchQuery) rows = rows.filter(c => (c.name||'').toLowerCase().includes(_volSearchQuery));
   rows.sort((a, b) => {
     if (_volSortKey === 'name') return _volSortDir * (a.name||'').localeCompare(b.name||'');
     const _v = (c, k) => {
-      if (k === 'jul') return c.monthly_calls?.['2026-07'] || 0;
-      if (k === 'aug') return c.monthly_calls?.['2026-08'] || 0;
-      if (k === 'sep') return c.monthly_calls?.['2026-09'] || 0;
+      if (k === m0.key || k === m1.key || k === m2.key) return c.monthly_calls?.[k] || 0;
       if (k === 'last30d') {
-        const jul = c.monthly_calls?.['2026-07'] || 0;
-        const jun = c.monthly_calls?.['2026-06'] || 0;
-        const junRate = jun / 30;
-        return jul + junRate * (30 - new Date().getDate());
+        const cur  = c.monthly_calls?.[m2.key] || 0;
+        const prev = c.monthly_calls?.[m1.key] || 0;
+        return cur + (prev / _daysInM1) * _prevMonthDaysInWindow;
       }
       return c[k] || 0;
     };
@@ -3786,33 +3800,24 @@ function _renderVolumeTable(vd) {
   document.getElementById('vol-thead').innerHTML = `<tr>
     ${_th('name','Customer')}
     <th>Closed</th>
-    ${_th('jul','Jul')}
-    ${_th('aug','Aug')}
-    ${_th('sep','Sep MTD')}
+    ${_th(m0.key, m0.label)}
+    ${_th(m1.key, m1.label)}
+    ${_th(m2.key, m2.label + ' MTD')}
     ${_th('q3_total','Q3 Total')}
     ${_th('last30d','Last 30d')}
   </tr>`;
 
-  // Today is known from the as_of date or current date
-  const _today = vd.as_of ? new Date(vd.as_of) : new Date();
-  const _dayOfMonth = _today.getDate(); // days elapsed in current month
-  const _daysInPrevMonth = new Date(_today.getFullYear(), _today.getMonth(), 0).getDate();
-  const _prevMonthDaysInWindow = 30 - _dayOfMonth; // days of prior month in the 30d window
-
   document.getElementById('vol-tbody').innerHTML = rows.map(c => {
-    const jul = c.monthly_calls?.['2026-07'] || 0;
-    const aug = c.monthly_calls?.['2026-08'] || 0;
-    const sep = c.monthly_calls?.['2026-09'] || 0;
+    const v0  = c.monthly_calls?.[m0.key] || 0;
+    const v1  = c.monthly_calls?.[m1.key] || 0;
+    const v2  = c.monthly_calls?.[m2.key] || 0;
     const q3  = c.q3_total || 0;
-    const jun = c.monthly_calls?.['2026-06'] || 0;
-    const may = c.monthly_calls?.['2026-05'] || 0;
-    // Last 30d: Jul MTD + trailing slice of Jun
-    const junDailyRate = _daysInPrevMonth > 0 ? jun / _daysInPrevMonth : 0;
-    const last30d = jul + junDailyRate * _prevMonthDaysInWindow;
-    // Prior 30d: the 30 days before that (early Jun + trailing May)
-    const mayDaysInWindow = _daysInPrevMonth - _prevMonthDaysInWindow; // days of May in prior window
-    const mayDailyRate = may > 0 ? may / 31 : 0;
-    const prior30d = junDailyRate * _dayOfMonth + mayDailyRate * mayDaysInWindow;
+    // Last 30d vs prior 30d
+    const m1DailyRate = _daysInM1 > 0 ? v1 / _daysInM1 : 0;
+    const last30d  = v2 + m1DailyRate * _prevMonthDaysInWindow;
+    const m0DaysInWindow = _daysInM1 - _prevMonthDaysInWindow;
+    const m0DailyRate = v0 > 0 ? v0 / 31 : 0;
+    const prior30d = m1DailyRate * _dayOfMonth + m0DailyRate * m0DaysInWindow;
     let trend = '<span style="color:var(--text-dim)">—</span>';
     if (prior30d === 0 && last30d > 0) {
       trend = '<span style="color:var(--green);font-weight:700">new</span>';
@@ -3823,9 +3828,9 @@ function _renderVolumeTable(vd) {
     return `<tr>
       <td><strong>${c.name}</strong></td>
       <td style="color:var(--text-dim);font-family:var(--mono);font-size:10px">${c.close_date||'—'}</td>
-      <td style="font-family:var(--mono)">${_fmtM(jul)}</td>
-      <td style="font-family:var(--mono)">${_fmtM(aug)}</td>
-      <td style="font-family:var(--mono);color:var(--text-dim)">${_fmtM(sep)}</td>
+      <td style="font-family:var(--mono)">${_fmtM(v0)}</td>
+      <td style="font-family:var(--mono)">${_fmtM(v1)}</td>
+      <td style="font-family:var(--mono);font-weight:600">${_fmtM(v2)}</td>
       <td style="font-family:var(--mono);font-weight:700">${_fmtM(q3)}</td>
       <td>${trend}</td>
     </tr>`;
