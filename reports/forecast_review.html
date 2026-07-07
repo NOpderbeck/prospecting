@@ -3782,10 +3782,10 @@ function _renderVolumeTable(vd) {
     if (_volSortKey === 'name') return _volSortDir * (a.name||'').localeCompare(b.name||'');
     const _v = (c, k) => {
       if (k === m0.key || k === m1.key || k === m2.key) return c.monthly_calls?.[k] || 0;
-      if (k === 'last30d') {
-        const cur  = c.monthly_calls?.[m2.key] || 0;
-        const prev = c.monthly_calls?.[m1.key] || 0;
-        return cur + (prev / _daysInM1) * _prevMonthDaysInWindow;
+      if (k === 'trend_pct') {
+        const v0 = c.monthly_calls?.[m0.key] || 0;
+        const v1 = c.monthly_calls?.[m1.key] || 0;
+        return v0 > 0 ? (v1 - v0) / v0 : (v1 > 0 ? 1 : 0);
       }
       return c[k] || 0;
     };
@@ -3804,7 +3804,7 @@ function _renderVolumeTable(vd) {
     ${_th(m1.key, m1.label)}
     ${_th(m2.key, m2.label + ' MTD')}
     ${_th('q3_total','Q3 Total')}
-    ${_th('last30d','Last 30d')}
+    ${_th('trend_pct', m1.label + ' vs ' + m0.label)}
   </tr>`;
 
   document.getElementById('vol-tbody').innerHTML = rows.map(c => {
@@ -3812,17 +3812,12 @@ function _renderVolumeTable(vd) {
     const v1  = c.monthly_calls?.[m1.key] || 0;
     const v2  = c.monthly_calls?.[m2.key] || 0;
     const q3  = c.q3_total || 0;
-    // Last 30d vs prior 30d
-    const m1DailyRate = _daysInM1 > 0 ? v1 / _daysInM1 : 0;
-    const last30d  = v2 + m1DailyRate * _prevMonthDaysInWindow;
-    const m0DaysInWindow = _daysInM1 - _prevMonthDaysInWindow;
-    const m0DailyRate = v0 > 0 ? v0 / 31 : 0;
-    const prior30d = m1DailyRate * _dayOfMonth + m0DailyRate * m0DaysInWindow;
+    // Compare the two most recent completed months
     let trend = '<span style="color:var(--text-dim)">—</span>';
-    if (prior30d === 0 && last30d > 0) {
+    if (v0 === 0 && v1 > 0) {
       trend = '<span style="color:var(--green);font-weight:700">new</span>';
-    } else if (prior30d > 0) {
-      const pct = Math.round((last30d - prior30d) / prior30d * 100);
+    } else if (v0 > 0) {
+      const pct = Math.round((v1 - v0) / v0 * 100);
       trend = `<span style="color:${pct>=0?'var(--green)':'var(--red)'};font-weight:700">${pct>=0?'↑':'↓'}${Math.abs(pct)}%</span>`;
     }
     return `<tr>
