@@ -1163,6 +1163,7 @@ PAYGO_TARGET_TOTAL  = 50   # combined
 PAYGO_EXCEPTION_IDS = {
     "006Vq00000ZPkhpIAD",  # HPE Juniper Networks — Web+News Search API
     "006Vq00000aFCvOIAW",  # Reflection.ai — API Credit | Search API
+    "006Vq00000f1kHJIAY",  # Nyne AI — API Credit (New, $500K committed; name lacks "PayGo")
 }
 
 def build_paygo(sf, id_map: dict) -> dict:
@@ -1245,7 +1246,7 @@ def build_paygo(sf, id_map: dict) -> dict:
     try:
         all_pago_rows = soql(sf, f"""
             SELECT Id, Name, Account.Id, Account.Name, Account.Account_Tier__c,
-                   OwnerId, Amount, CloseDate,
+                   OwnerId, Amount, CloseDate, Order_Start_Date__c,
                    Vol_Estimate_API_Calls_After_90_Day__c,
                    Volume_Estimate_API_Monthly_Calls__c,
                    Total_Potential_Volume__c
@@ -1269,16 +1270,17 @@ def build_paygo(sf, id_map: dict) -> dict:
             if acct_id:
                 seen_acct_ids.add(acct_id)
             all_pago_deals.append({
-                "account":        acct.get("Name") or "",
-                "account_id":     acct_id,
-                "tier":           acct.get("Account_Tier__c") or "—",
-                "rep":            id_to_name.get(d.get("OwnerId") or "", ""),
-                "sub":            sub,
-                "amount":         d.get("Amount") or 0,
-                "close_date":     (d.get("CloseDate") or "")[:10],
-                "month3_target":  d.get("Vol_Estimate_API_Calls_After_90_Day__c"),
-                "steady_state":   d.get("Volume_Estimate_API_Monthly_Calls__c"),
-                "volume_upside":  d.get("Total_Potential_Volume__c"),
+                "account":          acct.get("Name") or "",
+                "account_id":       acct_id,
+                "tier":             acct.get("Account_Tier__c") or "—",
+                "rep":              id_to_name.get(d.get("OwnerId") or "", ""),
+                "sub":              sub,
+                "amount":           d.get("Amount") or 0,
+                "close_date":       (d.get("CloseDate") or "")[:10],
+                "paygo_start_date": (d.get("Order_Start_Date__c") or "")[:10],
+                "month3_target":    d.get("Vol_Estimate_API_Calls_After_90_Day__c"),
+                "steady_state":     d.get("Volume_Estimate_API_Monthly_Calls__c"),
+                "volume_upside":    d.get("Total_Potential_Volume__c"),
             })
         print(f"    All-time PAGO deals: {len(all_pago_deals)} unique accounts")
     except Exception as e:
@@ -1444,7 +1446,7 @@ def _get_sheets_creds():
     return creds
 
 
-def build_volume_data() -> dict:
+def build_volume_data(sf=None) -> dict:
     """Download API call volume xlsx from Drive and parse it with openpyxl."""
     import io
     import openpyxl
@@ -1560,6 +1562,28 @@ def build_volume_data() -> dict:
         })
 
     wb.close()
+
+    # Enrich with PayGo start date from Salesforce (Order_Start_Date__c on Opportunity)
+    paygo_start_by_name: dict = {}
+    if sf is not None:
+        try:
+            start_rows = soql(sf, """
+                SELECT Account.Name, Order_Start_Date__c
+                FROM Opportunity
+                WHERE IsWon = true
+                AND Order_Start_Date__c != null
+                ORDER BY CloseDate DESC NULLS LAST
+            """)
+            for r in start_rows:
+                acct_name = ((r.get("Account") or {}).get("Name") or "").strip().lower()
+                date_val  = (r.get("Order_Start_Date__c") or "")[:10]
+                if acct_name and date_val and acct_name not in paygo_start_by_name:
+                    paygo_start_by_name[acct_name] = date_val
+        except Exception as e:
+            print(f"      WARN: could not fetch Order_Start_Date__c: {e}", file=sys.stderr)
+
+    for c in customers:
+        c["paygo_start_date"] = paygo_start_by_name.get(c["name"].strip().lower(), "")
 
     excl = [c for c in customers if not c["is_top2"]]
     monthly_excl = {mk: sum(c["monthly_calls"].get(mk, 0) for c in excl) for mk in _VOL_MONTH_KEYS}
@@ -1696,7 +1720,7 @@ def main():
 
     # 10. Volume data (Google Sheets)
     try:
-        output["volume_data"] = build_volume_data()
+        output["volume_data"] = build_volume_data(sf)
         vd = output["volume_data"]
         cust_count = len(vd.get("customers_excl_top2") or [])
         print(f"  [10/10] Done: volume_data ({cust_count} customers, Q3 excl top2: {vd.get('q3_excl_top2',0):,}, Q2 final: {vd.get('q2_excl_top2',0):,})")

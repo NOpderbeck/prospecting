@@ -645,20 +645,28 @@
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <!-- Mode toggle: Mix vs Meetings -->
           <div style="display:flex;gap:4px;border:1px solid var(--border);border-radius:6px;padding:2px">
-            <button class="qpb-toggle active" id="mix-mode-mix"     onclick="setMixMode('mix')"      style="border:none">Mix</button>
-            <button class="qpb-toggle"        id="mix-mode-meetings" onclick="setMixMode('meetings')" style="border:none">Meetings</button>
+            <button class="qpb-toggle"        id="mix-mode-mix"     onclick="setMixMode('mix')"      style="border:none">Mix</button>
+            <button class="qpb-toggle active" id="mix-mode-meetings" onclick="setMixMode('meetings')" style="border:none">Meetings</button>
           </div>
-          <!-- All Reps / By AE — only shown in Mix mode -->
-          <div id="mix-rep-toggles" style="display:flex;gap:6px">
+          <!-- All Reps / By AE — Mix mode -->
+          <div id="mix-rep-toggles" style="display:none;gap:6px">
             <button class="qpb-toggle active" id="mix-view-all" onclick="setMixView('all')">All Reps</button>
             <button class="qpb-toggle"        id="mix-view-ae"  onclick="setMixView('ae')">By AE</button>
             <select id="mix-ae-select" onchange="renderOutboundMix()"
               style="display:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-family:var(--mono);font-size:11px;padding:3px 8px;cursor:pointer">
             </select>
           </div>
+          <!-- All Reps / By AE — Meetings mode -->
+          <div id="mtg-rep-toggles" style="display:flex;gap:6px">
+            <button class="qpb-toggle active" id="mtg-view-all" onclick="setMtgView('all')">All Reps</button>
+            <button class="qpb-toggle"        id="mtg-view-ae"  onclick="setMtgView('ae')">By AE</button>
+            <select id="mtg-ae-select" onchange="renderExternalMeetings()"
+              style="display:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-family:var(--mono);font-size:11px;padding:3px 8px;cursor:pointer">
+            </select>
+          </div>
         </div>
       </div>
-      <div class="chart-wrap" style="height:260px"><canvas id="chart-outbound-mix"></canvas></div>
+      <div class="chart-wrap" style="height:300px"><canvas id="chart-outbound-mix"></canvas></div>
     </div>
     <div class="card" style="min-width:0">
       <div class="card-title">Rep Activity Summary</div>
@@ -711,9 +719,23 @@
   <div class="card" style="overflow-x:auto">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div class="card-title" style="margin-bottom:0">Customer Volume Breakdown</div>
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim)" id="vol-as-of"></span>
-        <div style="position:relative;margin-left:auto">
+        <!-- PayGo Start Date filter -->
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-dim);white-space:nowrap" title="Hide accounts whose PayGo Start Date is in the future (not yet active)">
+          <input type="checkbox" id="vol-hide-future" checked onchange="_renderVolumeTable(data.volume_data)"
+            style="cursor:pointer;accent-color:var(--accent)">
+          Hide future starts
+        </label>
+        <!-- Min Volume slider -->
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-dim);white-space:nowrap">
+          Min vol
+          <input type="range" id="vol-min-slider" min="0" max="500000" step="10000" value="100000"
+            oninput="document.getElementById('vol-min-label').textContent=_fmtK(+this.value);_renderVolumeTable(data.volume_data)"
+            style="width:90px;cursor:pointer;accent-color:var(--accent)">
+          <span id="vol-min-label" style="min-width:36px;text-align:right">100K</span>
+        </label>
+        <div style="position:relative;margin-left:4px">
           <input type="text" id="vol-search" placeholder="// filter customers…" autocomplete="off"
             oninput="onVolSearch(this.value)"
             style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:11px;padding:5px 26px 5px 9px;outline:none;letter-spacing:0.03em;width:200px">
@@ -781,10 +803,28 @@
 
   <!-- ── PayGo Accounts view ── -->
   <div id="usage-pago-view" style="display:none">
-    <div style="display:flex;gap:6px;margin-bottom:10px" id="pago-period-btns">
-      <button class="qpb-toggle"        onclick="setPagoPeriod('all',this)">All Time</button>
-      <button class="qpb-toggle"        onclick="setPagoPeriod('fy',this)">FY</button>
-      <button class="qpb-toggle active" onclick="setPagoPeriod('cq',this)">CQ</button>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="display:flex;gap:6px" id="pago-period-btns">
+        <button class="qpb-toggle"        onclick="setPagoPeriod('all',this)">All Time</button>
+        <button class="qpb-toggle"        onclick="setPagoPeriod('fy',this)">FY</button>
+        <button class="qpb-toggle active" onclick="setPagoPeriod('cq',this)">CQ</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-left:auto;flex-wrap:wrap">
+        <!-- PayGo Start Date filter -->
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-dim);white-space:nowrap" title="Hide accounts whose PayGo start date hasn't arrived yet">
+          <input type="checkbox" id="pago-hide-future" checked onchange="renderPAGOTable()"
+            style="cursor:pointer;accent-color:var(--accent)">
+          Hide future starts
+        </label>
+        <!-- Min Steady-State Volume filter -->
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-dim);white-space:nowrap">
+          Min SS vol
+          <input type="range" id="pago-min-slider" min="0" max="500000" step="10000" value="0"
+            oninput="document.getElementById('pago-min-label').textContent=_fmtK(+this.value);renderPAGOTable()"
+            style="width:90px;cursor:pointer;accent-color:var(--accent)">
+          <span id="pago-min-label" style="min-width:36px;text-align:right">0</span>
+        </label>
+      </div>
     </div>
     <div class="card" style="overflow-x:auto">
       <table class="data-table" id="pago-usage-table">
@@ -2146,13 +2186,28 @@ function renderVelocityChart(canvasId, velocityData) {
   const allStages      = [...pipelineStages, ...terminalStages];
   if (!allStages.length) return;
 
-  // E2E close rate: Closed Won / deals that entered Discovery (first stage)
+  // Two conversion metrics shown side by side:
+  //  (1) New-pipeline close rate — of opps CREATED this period, % that reached Closed Won.
+  //      A cohort funnel from stage history; reads low early in a quarter BY DESIGN
+  //      (newly-created deals haven't closed yet; deals that closed were created earlier).
+  //  (2) Win rate — of opps that CLOSED this period (by CloseDate), % won. Reflects actual wins/losses.
+  const isFY         = (velocityData === window._velocityDataFY);
   const entryStage   = '1 - Discovery';
   const entryCount   = velocityData[entryStage]?.reached || 0;
   const closedWon    = velocityData['Closed Won']?.reached || 0;
-  const e2ePct    = entryCount > 0 ? ((closedWon / entryCount) * 100).toFixed(0) : '—';
-  const e2eHtml   = `E2E close rate: <span style="color:var(--accent);font-weight:700">${e2ePct}%</span> &nbsp;(${closedWon} won / ${entryCount} entered)`;
-  // Update both E2E spans so they stay in sync when the toggle fires both charts
+  const e2ePct       = entryCount > 0 ? ((closedWon / entryCount) * 100).toFixed(0) : '—';
+  const cohortLabel  = isFY ? 'FY close rate (created FY)' : 'New-pipeline close rate (created this qtr)';
+
+  // (2) Win rate from the closed deals in this period's deal set.
+  const dealSet = isFY ? (data?.forecast?.fy_deals || []) : (data?.forecast?.cq_deals || []);
+  const wonC    = dealSet.filter(x => x && x.is_won).length;
+  const lostC   = dealSet.filter(x => x && x.is_closed && !x.is_won).length;
+  const winPct  = (wonC + lostC) > 0 ? ((wonC / (wonC + lostC)) * 100).toFixed(0) : '—';
+
+  const e2eHtml =
+      `${cohortLabel}: <span style="color:var(--accent);font-weight:700">${e2ePct}%</span> (${closedWon} won / ${entryCount} created)`
+    + ` &nbsp;·&nbsp; Win rate: <span style="color:var(--accent);font-weight:700">${winPct}%</span> (${wonC}W / ${lostC}L closed)`;
+  // Update both spans so they stay in sync when the toggle fires both charts
   ['vel-e2e-pipeline', 'vel-e2e-activity'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = e2eHtml;
@@ -2377,7 +2432,7 @@ function setActRange(range, btn) {
   document.querySelectorAll('#act-range-btns .qpb-toggle').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderStackedActivityChart();
-  renderOutboundMix();
+  if (_mixMode === 'meetings') renderExternalMeetings(); else renderOutboundMix();
   renderActivitySummaryTable();
 }
 
@@ -2395,17 +2450,28 @@ function getActWeekSlice() {
 }
 
 let _mixView = 'all';
-let _mixMode = 'mix';      // 'mix' | 'meetings'
+let _mixMode = 'meetings';      // 'mix' | 'meetings'
 
 function setMixMode(mode) {
   _mixMode = mode;
   document.getElementById('mix-mode-mix').classList.toggle('active', mode === 'mix');
   document.getElementById('mix-mode-meetings').classList.toggle('active', mode === 'meetings');
   document.getElementById('mix-rep-toggles').style.display = mode === 'mix' ? 'flex' : 'none';
+  document.getElementById('mtg-rep-toggles').style.display = mode === 'meetings' ? 'flex' : 'none';
   document.getElementById('mix-card-title').textContent =
     mode === 'meetings' ? 'External Meetings by Week' : 'Outbound Approach Mix';
   if (mode === 'meetings') renderExternalMeetings();
   else                     renderOutboundMix();
+}
+
+let _mtgView = 'all';
+
+function setMtgView(view) {
+  _mtgView = view;
+  document.getElementById('mtg-view-all').classList.toggle('active', view === 'all');
+  document.getElementById('mtg-view-ae').classList.toggle('active', view === 'ae');
+  document.getElementById('mtg-ae-select').style.display = view === 'ae' ? '' : 'none';
+  renderExternalMeetings();
 }
 
 function setMixView(view) {
@@ -2423,7 +2489,7 @@ function renderExternalMeetings() {
     return;
   }
 
-  // Active reps sorted by total meetings desc
+  // Active reps with any meetings at all, sorted by total desc
   const totals = {};
   ALL_REPS.forEach(rep => {
     totals[rep] = log.reduce((s, e) => s + ((e.by_rep || {})[rep] || 0), 0);
@@ -2431,30 +2497,50 @@ function renderExternalMeetings() {
   const activeReps = ALL_REPS.filter(rep => totals[rep] > 0)
                               .sort((a, b) => totals[b] - totals[a]);
 
-  // One dataset per week so we get a stacked breakdown over time
-  const WEEK_PALETTE = ['#00c8e8','#a78bfa','#f59e0b','#00e5a0','#f05252','#38bdf8','#fb923c','#e879f9','#4ade80','#94a3b8','#64748b','#ec4899'];
-  const datasets = log.map((entry, i) => ({
-    label: entry.week_label || entry.week,
-    data: activeReps.map(rep => (entry.by_rep || {})[rep] || 0),
-    backgroundColor: WEEK_PALETTE[i % WEEK_PALETTE.length],
-    borderRadius: 2,
-    stack: 'meetings',
-  }));
+  // Populate AE select once
+  const sel = document.getElementById('mtg-ae-select');
+  if (sel && !sel.options.length) {
+    activeReps.forEach(rep => {
+      const o = document.createElement('option');
+      o.value = rep; o.textContent = rep;
+      sel.appendChild(o);
+    });
+  }
+
+  // x-axis = weeks, datasets = one per rep (or just selected rep for By AE)
+  const weekLabels = log.map(e => e.week_label || e.week);
+  let datasets;
+  if (_mtgView === 'ae') {
+    const repName = sel?.value || activeReps[0];
+    datasets = [{
+      label: repName,
+      data: log.map(e => (e.by_rep || {})[repName] || 0),
+      backgroundColor: REP_COLOR_MAP[repName] || '#6366f1',
+      borderRadius: 2,
+    }];
+  } else {
+    datasets = activeReps.map(rep => ({
+      label: rep,
+      data: log.map(e => (e.by_rep || {})[rep] || 0),
+      backgroundColor: REP_COLOR_MAP[rep] || '#6366f1',
+      borderRadius: 2,
+      stack: 'meetings',
+    }));
+  }
 
   destroyChart('chart-outbound-mix');
   new Chart(document.getElementById('chart-outbound-mix'), {
     type: 'bar',
-    data: { labels: activeReps.map(r => { const p = r.split(' '); return `${p[0]} ${p[p.length-1][0]}.`; }), datasets },
+    data: { labels: weekLabels, datasets },
     options: {
-      indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
       onClick: (evt, elements) => {
         if (!elements.length) return;
         const { dataIndex, datasetIndex } = elements[0];
-        const repName = activeReps[dataIndex];
-        const entry   = log[datasetIndex];
-        if (!repName || !entry) return;
+        const entry   = log[dataIndex];
+        const repName = datasets[datasetIndex]?.label;
+        if (!entry || !repName) return;
         const accounts = (entry.accounts_by_rep || {})[repName] || [];
         openMtgModal(repName, entry.week_label || entry.week, accounts);
       },
@@ -2463,28 +2549,33 @@ function renderExternalMeetings() {
       },
       plugins: {
         legend: {
-          display: log.length > 1,
-          labels: { boxWidth: 12, font: { family: "'JetBrains Mono', monospace", size: 11 } }
+          display: _mtgView === 'all' && activeReps.length > 1,
+          position: 'bottom',
+          labels: { boxWidth: 10, font: { family: "'JetBrains Mono', monospace", size: 11 } }
         },
         tooltip: {
           callbacks: {
-            title: (items) => activeReps[items[0].dataIndex],
+            title: (items) => weekLabels[items[0].dataIndex],
             label: ctx => ctx.raw > 0 ? ` ${ctx.dataset.label}: ${ctx.raw}` : null,
-            footer: (items) => `Total: ${totals[activeReps[items[0].dataIndex]]} meetings`,
+            footer: (items) => {
+              const entry = log[items[0].dataIndex];
+              const total = Object.values(entry.by_rep || {}).reduce((s, v) => s + v, 0);
+              return `Total: ${total} meetings`;
+            },
           }
         }
       },
       scales: {
         x: {
-          stacked: true,
+          stacked: _mtgView === 'all',
+          grid: { display: false },
+          ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } }
+        },
+        y: {
+          stacked: _mtgView === 'all',
           beginAtZero: true,
           grid: { color: 'rgba(148,163,184,0.12)' },
           ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 }, stepSize: 1 }
-        },
-        y: {
-          stacked: true,
-          grid: { display: false },
-          ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } }
         }
       }
     }
@@ -2618,7 +2709,7 @@ function renderActivity() {
   window._actByRep     = byRepObj;
   window._actRepNames  = stackedRepNames;
   renderStackedActivityChart();
-  renderOutboundMix();
+  if (_mixMode === 'meetings') renderExternalMeetings(); else renderOutboundMix();
 
   renderActivitySummaryTable();
 }
@@ -2973,8 +3064,24 @@ function renderPAGOTable() {
     : _usageTeam === 'nick' ? periodDeals.filter(d => NICK_TEAM.includes(d.rep))
     : periodDeals.filter(d => IVY_TEAM.includes(d.rep));
 
+  // PayGo Start Date filter — hide accounts not yet active
+  const _pagoHideFuture = document.getElementById('pago-hide-future')?.checked ?? true;
+  const _todayStr = new Date().toISOString().slice(0, 10);
+  const startFiltered = _pagoHideFuture
+    ? teamDeals.filter(d => !d.paygo_start_date || d.paygo_start_date <= _todayStr)
+    : teamDeals;
+
+  // Min Steady-State Volume filter — filter by SF steady_state estimate
+  const _pagoMinVol = +(document.getElementById('pago-min-slider')?.value ?? 0);
+  // Only filter out accounts whose KNOWN steady-state estimate is below the threshold.
+  // Accounts with no SS estimate (null) stay visible — "unknown volume" ≠ "low volume",
+  // and new PayGo lands often have no SF estimate yet (this used to empty the whole view).
+  const volFiltered = _pagoMinVol > 0
+    ? startFiltered.filter(d => d.steady_state == null || d.steady_state >= _pagoMinVol)
+    : startFiltered;
+
   // Enrich with computed fields
-  const enriched = teamDeals.map(d => {
+  const enriched = volFiltered.map(d => {
     const closeDate = d.close_date ? new Date(d.close_date) : null;
     const months    = closeDate ? (today - closeDate) / (1000 * 60 * 60 * 24 * 30.44) : null;
     const usage30d  = d.account_id ? (_pagoUsage[d.account_id] ?? null) : null;
@@ -3388,6 +3495,13 @@ function _fmtM(v) {
   return String(Math.round(v));
 }
 
+function _fmtK(v) {
+  if (!v) return '0';
+  if (v >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1e3) return Math.round(v / 1e3) + 'K';
+  return String(v);
+}
+
 function _renderVolumeKPIs(vd) {
   const q3Target  = (vd.targets_m?.q3 || 366) * 1_000_000;
   const q3Actual  = vd.q3_excl_top2 || 0;
@@ -3777,6 +3891,23 @@ function _renderVolumeTable(vd) {
   const _prevMonthDaysInWindow = 30 - _dayOfMonth;
 
   let rows = [...(vd.customers_excl_top2 || [])];
+
+  // PayGo Start Date filter — hide accounts whose start date is still in the future
+  const _hideFuture = document.getElementById('vol-hide-future')?.checked ?? true;
+  if (_hideFuture) {
+    const _todayStr = (vd.as_of || new Date().toISOString().slice(0, 10));
+    rows = rows.filter(c => !c.paygo_start_date || c.paygo_start_date <= _todayStr);
+  }
+
+  // Min Steady-State Volume filter — use best of two most recent complete months
+  const _minVol = +(document.getElementById('vol-min-slider')?.value ?? 100000);
+  if (_minVol > 0) {
+    rows = rows.filter(c => {
+      const best = Math.max(c.monthly_calls?.[m0.key] || 0, c.monthly_calls?.[m1.key] || 0);
+      return best >= _minVol;
+    });
+  }
+
   if (_volSearchQuery) rows = rows.filter(c => (c.name||'').toLowerCase().includes(_volSearchQuery));
   rows.sort((a, b) => {
     if (_volSortKey === 'name') return _volSortDir * (a.name||'').localeCompare(b.name||'');
